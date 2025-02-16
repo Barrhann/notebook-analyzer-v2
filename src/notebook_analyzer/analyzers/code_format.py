@@ -8,6 +8,7 @@ from typing import Dict, Any, List
 import ast
 import tempfile
 import os
+from collections import Counter
 
 class CodeFormatAnalyzer:
     def __init__(self):
@@ -23,21 +24,23 @@ class CodeFormatAnalyzer:
         Returns:
             Dict[str, Any]: Analysis results including PEP8 compliance and code style metrics
         """
-        code_cells = notebook_content['code_cells']
+        code_cells = notebook_content.get('code_cells', [])
+        notebook_path = notebook_content.get('path', '')
         
         results = {
+            'notebook_path': notebook_path,
             'pep8_violations': [],
             'code_style_metrics': {
                 'total_lines': 0,
                 'complex_lines': 0,
                 'avg_line_length': 0,
-            },
-            'positive_findings': [],
-            'negative_findings': []
+                'max_line_length': 0,
+                'lines_over_limit': 0
+            }
         }
 
         total_length = 0
-        total_violations = 0
+        line_lengths = []
 
         for cell in code_cells:
             code = cell['source']
@@ -50,23 +53,82 @@ class CodeFormatAnalyzer:
                 tmp_file_path = tmp_file.name
 
             try:
-                # Run PEP8 checker on temporary file
-                checker = pycodestyle.Checker(tmp_file_path, quiet=True)
-                violations = checker.check_all()
-                total_violations += violations
+                # Create a custom report to collect violations
+                class ViolationReport:
+                    def __init__(self):
+                        self.violations = []
+                        self.total_errors = 0
+                        self.counters = dict.fromkeys([
+                            'logical lines', 'physical lines', 'tokens'
+                        ], 0)
+
+                    def error(self, line_number, offset, text, check):
+                        """Report an error, according to options."""
+                        self.violations.append(f"{text} at line {line_number}")
+                        self.total_errors += 1
+
+                    def get_file_results(self):
+                        """Return the count of errors."""
+                        return self.total_errors
+
+                    def init_file(self, filename, lines, expected=None, line_offset=0):
+                        """Initialize the report for a file."""
+                        self.filename = filename
+                        self.lines = lines
+                        self.expected = expected or ()
+                        self.line_offset = line_offset
+                        self.indent_char = None
+                        self.indent_level = 0
+                        self.previous_indent_level = 0
+                        self.previous_logical = ''
+                        self.tokens = []
+                        self.counters['tokens'] = 0
+                        self.counters['physical lines'] = 0
+                        self.counters['logical lines'] = 0
+
+                    def increment_logical_line(self):
+                        """Increment the logical line counter."""
+                        self.counters['logical lines'] += 1
+
+                    def increment_token(self):
+                        """Increment the token counter."""
+                        self.counters['tokens'] += 1
+
+                    def new_line(self, line_number):
+                        """Process a new physical line."""
+                        self.counters['physical lines'] += 1
+
+                    def finish(self):
+                        """Clean up the report after all lines are checked."""
+                        pass
+
+                # Use a FileReport as the base and extend it with our custom functionality
+                report = ViolationReport()
+                checker = pycodestyle.Checker(
+                    tmp_file_path,
+                    quiet=True,
+                    report=report
+                )
+                # Run the checker - this will populate our custom report
+                checker.check_all()
+                results['pep8_violations'].extend(report.violations)
 
                 # Calculate metrics
                 lines = code.split('\n')
                 results['code_style_metrics']['total_lines'] += len(lines)
-                total_length += sum(len(line) for line in lines)
+                
+                # Line length analysis
+                for line in lines:
+                    length = len(line)
+                    total_length += length
+                    line_lengths.append(length)
+                    if length > 79:
+                        results['code_style_metrics']['lines_over_limit'] += 1
                 
                 # Analyze code complexity
                 try:
                     tree = ast.parse(code)
-                    results['code_style_metrics']['complex_lines'] += sum(
-                        1 for node in ast.walk(tree)
-                        if isinstance(node, (ast.If, ast.For, ast.While, ast.Try))
-                    )
+                    results['code_style_metrics']['complex_lines'] += self._count_complexity(tree)
                 except SyntaxError:
                     pass  # Skip complexity analysis for cells with syntax errors
 
@@ -77,36 +139,20 @@ class CodeFormatAnalyzer:
                 except:
                     pass
 
-        # Update violations count
-        results['pep8_violations'] = total_violations
-
-        # Calculate average line length
+        # Calculate final metrics
         if results['code_style_metrics']['total_lines'] > 0:
             results['code_style_metrics']['avg_line_length'] = (
                 total_length / results['code_style_metrics']['total_lines']
             )
-
-        # Generate findings
-        self._generate_findings(results)
+            results['code_style_metrics']['max_line_length'] = max(line_lengths) if line_lengths else 0
         
         return results
 
-    def _generate_findings(self, results: Dict[str, Any]):
-        """Generate positive and negative findings based on the analysis."""
-        if results['pep8_violations'] == 0:
-            results['positive_findings'].append(
-                "Code follows PEP8 standards perfectly"
-            )
-        else:
-            results['negative_findings'].append(
-                f"Found {results['pep8_violations']} PEP8 violations"
-            )
-
-        if results['code_style_metrics']['avg_line_length'] <= 79:
-            results['positive_findings'].append(
-                "Line lengths are within recommended PEP8 limits"
-            )
-        else:
-            results['negative_findings'].append(
-                "Average line length exceeds PEP8 recommendation of 79 characters"
-            )
+    def _count_complexity(self, tree: ast.AST) -> int:
+        """Count complex constructs in the AST."""
+        complex_nodes = (
+            ast.If, ast.For, ast.While, ast.Try,
+            ast.FunctionDef, ast.ClassDef,
+            ast.ListComp, ast.DictComp, ast.SetComp
+        )
+        return sum(1 for node in ast.walk(tree) if isinstance(node, complex_nodes))
