@@ -1,2 +1,0 @@
-[console_scripts]
-notebook-analyzer = notebook_analyzer.cli:main
