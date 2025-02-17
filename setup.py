@@ -6,7 +6,7 @@ It defines dependencies, entry points, and package metadata.
 
 Created by: Barrhann
 Created on: 2025-02-17
-Last Updated: 2025-02-17 02:10:02
+Last Updated: 2025-02-17 02:26:49
 """
 
 from setuptools import setup, find_packages
@@ -27,7 +27,7 @@ setup(
     # CLI entry point
     entry_points={
         'console_scripts': [
-            'notebook-analyzer=notebook_analyzer.cli:cli_main',
+            'notebook-analyzer=notebook_analyzer.cli:main',  
         ],
     },
     
