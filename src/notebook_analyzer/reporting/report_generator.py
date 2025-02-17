@@ -118,89 +118,89 @@ class ReportGenerator:
         
         return file_path
 
-def _prepare_report_data(self, analysis_results: Dict[str, Any]) -> Dict[str, Any]:
-    """
-    Prepare report data by formatting analysis results.
+    def _prepare_report_data(self, analysis_results: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Prepare report data by formatting analysis results.
 
-    Args:
-        analysis_results (Dict[str, Any]): Raw analysis results
+        Args:
+            analysis_results (Dict[str, Any]): Raw analysis results
 
-    Returns:
-        Dict[str, Any]: Formatted report data
-    """
-    # Extract the actual results from the nested structure
-    results = analysis_results.get('results', {})
-    metadata = analysis_results.get('metadata', {})
-    summary = analysis_results.get('summary', {})
+        Returns:
+            Dict[str, Any]: Formatted report data
+        """
+        # Extract the actual results from the nested structure
+        results = analysis_results.get('results', {})
+        metadata = analysis_results.get('metadata', {})
+        summary = analysis_results.get('summary', {})
 
-    report_data = {
-        'title': f"Notebook Analysis Report - {metadata.get('filename', 'Untitled')}",
-        'timestamp': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
-        'version': '1.0.0',
-        'overall_score': summary.get('overall_score', 0),
-        'sections': []
-    }
+        report_data = {
+            'title': f"Notebook Analysis Report - {metadata.get('filename', 'Untitled')}",
+            'timestamp': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
+            'version': '1.0.0',
+            'overall_score': summary.get('overall_score', 0),
+            'sections': []
+        }
 
-    # Process builder mindset metrics
-    if 'builder_mindset' in results:
-        builder_sections = []
-        for metric_name, metric_data in results['builder_mindset'].items():
-            if metric_name in self.formatters['builder_mindset']:
-                formatter = self.formatters['builder_mindset'][metric_name]
-                section = {
-                    'title': metric_name.replace('_', ' ').title(),
-                    'content': formatter.format_metrics(metric_data),
-                    'findings': metric_data.get('findings', []),
-                    'suggestions': metric_data.get('suggestions', []),
-                    'score': metric_data.get('score', 0),
-                    'charts': []
-                }
-                
-                # Add charts if available
-                if 'charts' in metric_data:
-                    section['charts'] = metric_data['charts']
-                
-                builder_sections.append(section)
-        
-        if builder_sections:
-            report_data['sections'].extend(builder_sections)
+        # Process builder mindset metrics
+        if 'builder_mindset' in results:
+            builder_sections = []
+            for metric_name, metric_data in results['builder_mindset'].items():
+                if metric_name in self.formatters['builder_mindset']:
+                    formatter = self.formatters['builder_mindset'][metric_name]
+                    section = {
+                        'title': metric_name.replace('_', ' ').title(),
+                        'content': formatter.format_metrics(metric_data),
+                        'findings': metric_data.get('findings', []),
+                        'suggestions': metric_data.get('suggestions', []),
+                        'score': metric_data.get('score', 0),
+                        'charts': []
+                    }
+                    
+                    # Add charts if available
+                    if 'charts' in metric_data:
+                        section['charts'] = metric_data['charts']
+                    
+                    builder_sections.append(section)
+            
+            if builder_sections:
+                report_data['sections'].extend(builder_sections)
 
-    # Process business intelligence metrics
-    if 'business_intelligence' in results:
-        bi_sections = []
-        for metric_name, metric_data in results['business_intelligence'].items():
-            if metric_name in self.formatters['business_intelligence']:
-                formatter = self.formatters['business_intelligence'][metric_name]
-                section = {
-                    'title': metric_name.replace('_', ' ').title(),
-                    'content': formatter.format_metrics(metric_data),
-                    'findings': metric_data.get('findings', []),
-                    'suggestions': metric_data.get('suggestions', []),
-                    'score': metric_data.get('score', 0),
-                    'charts': []
-                }
-                
-                # Add charts if available
-                if 'charts' in metric_data:
-                    section['charts'] = metric_data['charts']
-                
-                bi_sections.append(section)
-        
-        if bi_sections:
-            report_data['sections'].extend(bi_sections)
+        # Process business intelligence metrics
+        if 'business_intelligence' in results:
+            bi_sections = []
+            for metric_name, metric_data in results['business_intelligence'].items():
+                if metric_name in self.formatters['business_intelligence']:
+                    formatter = self.formatters['business_intelligence'][metric_name]
+                    section = {
+                        'title': metric_name.replace('_', ' ').title(),
+                        'content': formatter.format_metrics(metric_data),
+                        'findings': metric_data.get('findings', []),
+                        'suggestions': metric_data.get('suggestions', []),
+                        'score': metric_data.get('score', 0),
+                        'charts': []
+                    }
+                    
+                    # Add charts if available
+                    if 'charts' in metric_data:
+                        section['charts'] = metric_data['charts']
+                    
+                    bi_sections.append(section)
+            
+            if bi_sections:
+                report_data['sections'].extend(bi_sections)
 
-    # Add error section if there are any errors
-    if summary.get('errors'):
-        report_data['sections'].append({
-            'title': 'Analysis Errors',
-            'content': '\n'.join(summary['errors']),
-            'findings': [],
-            'suggestions': ['Please check the error messages and try again.'],
-            'score': 0,
-            'charts': []
-        })
+        # Add error section if there are any errors
+        if summary.get('errors'):
+            report_data['sections'].append({
+                'title': 'Analysis Errors',
+                'content': '\n'.join(summary['errors']),
+                'findings': [],
+                'suggestions': ['Please check the error messages and try again.'],
+                'score': 0,
+                'charts': []
+            })
 
-    return report_data
+        return report_data
 
     def _format_builder_mindset_sections(
         self, builder_metrics: Dict[str, Any]
