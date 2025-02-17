@@ -10,7 +10,7 @@ Last Updated: 2025-02-17 22:51:46
 """
 
 from .base_analyzer import BaseAnalyzer, AnalysisError
-from .notebook_analyzer import NotebookAnalyzer  # Added import
+from ..core.analysis_orchestrator import AnalysisOrchestrator
 from .builder_mindset import (  # Explicit imports for better code completion
     CodeFormattingAnalyzer,
     CodeStructureAnalyzer,

@@ -15,7 +15,7 @@ import os
 from typing import List, Optional
 from pathlib import Path
 
-from ..analyzers.notebook_analyzer import NotebookAnalyzer  # Updated import
+from ..core.analysis_orchestrator import AnalysisOrchestrator
 from ..analyzers import (
     BaseAnalyzer,
     builder_mindset,
@@ -170,7 +170,7 @@ def analyze_notebook(
     if verbose:
         print(f"\nAnalyzing {notebook_path}...")
 
-    analyzer = NotebookAnalyzer()
+    analyzer = AnalysisOrchestrator()
     
     try:
         results = analyzer.analyze(
