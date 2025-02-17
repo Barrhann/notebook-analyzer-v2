@@ -1,3 +1,14 @@
+"""
+Setup configuration for the notebook-analyzer package.
+
+This module contains the package configuration for installation and distribution.
+It defines dependencies, entry points, and package metadata.
+
+Created by: Barrhann
+Created on: 2025-02-17
+Last Updated: 2025-02-17 02:10:02
+"""
+
 from setuptools import setup, find_packages
 
 setup(
@@ -5,21 +16,31 @@ setup(
     version="1.0.0",
     packages=find_packages(where="src"),
     package_dir={"": "src"},
+    
+    # Required dependencies
     install_requires=[
-        "nbformat>=5.7.0",
-        "pycodestyle>=2.10.0",
+        "nbformat>=5.7.0",        # For Jupyter notebook parsing
+        "pycodestyle>=2.10.0",    # For code style checking
+        "jinja2>=3.0.0",         # For template rendering
     ],
+    
+    # CLI entry point
     entry_points={
         'console_scripts': [
-            'notebook-analyzer=notebook_analyzer.cli.main:main',
+            'notebook-analyzer=notebook_analyzer.cli:cli_main',
         ],
     },
+    
+    # Package metadata
+    author="Barrhann",
+    author_email="barrhann@github.com",
+    description="A tool for analyzing Jupyter notebooks",
+    url="https://github.com/Barrhann/notebook-analyzer-v2",
+    
+    # Python version support
     python_requires=">=3.8",
-    author="Your Name",
-    author_email="your.email@example.com",
-    description="A tool for analyzing Jupyter notebooks for code quality and documentation",
-    long_description=open("README.md").read(),
-    long_description_content_type="text/markdown",
+    
+    # Classifiers
     classifiers=[
         "Programming Language :: Python :: 3",
         "Programming Language :: Python :: 3.8",

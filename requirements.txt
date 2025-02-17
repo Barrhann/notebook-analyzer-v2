@@ -1,0 +1,13 @@
+# Core dependencies for notebook-analyzer
+# Created by: Barrhann
+# Created on: 2025-02-17
+# Last Updated: 2025-02-17 02:11:29
+
+# Jupyter notebook format handling
+nbformat>=5.7.0
+
+# Code style checking
+pycodestyle>=2.10.0
+
+# Template rendering
+jinja2>=3.0.0

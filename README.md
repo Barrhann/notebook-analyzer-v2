@@ -1,69 +1,123 @@
-# Jupyter Notebook Analyzer
+# Notebook Analyzer
 
-A tool for analyzing Jupyter notebooks to assess code quality and documentation standards. The analyzer provides detailed business insights about code formatting and documentation quality.
+A Python tool for analyzing Jupyter notebooks, focusing on code quality assessment through builder mindset patterns and business intelligence aspects.
 
 ## Features
 
-- PEP8 code formatting analysis
-- Documentation quality assessment (markdown cells and code comments)
-- Detailed business-friendly reports
-- Identification of both positive and negative aspects
-- Command-line interface for easy integration
+### Builder Mindset Analysis
+- **Code Formatting**: Style consistency and PEP 8 compliance
+- **Code Structure**: Organization and modular design
+- **Code Comments**: Documentation quality assessment
+- **Code Conciseness**: Efficiency and clarity metrics
+- **Code Reusability**: Function and module reuse patterns
+- **Advanced Techniques**: Python feature utilization
+- **Dataset Join Analysis**: Data manipulation patterns
+
+### Business Intelligence Analysis
+- **Visualization Types**: Chart selection and variety
+- **Visualization Formatting**: Plot readability and style
 
 ## Installation
 
 ```bash
-# Install from the current directory
-pip install .
+# Install from source
+git clone https://github.com/Barrhann/notebook-analyzer-v2.git
+cd notebook-analyzer-v2
+pip install -e .
 ```
+
+## Requirements
+
+- Python >= 3.8
+- nbformat >= 5.7.0
+- pycodestyle >= 2.10.0
+- jinja2 >= 3.0.0
 
 ## Usage
 
 ### Command Line Interface
 
 ```bash
-# Analyze a single notebook
-notebook-analyzer path/to/notebook.ipynb
+# Basic analysis
+notebook-analyzer analyze path/to/notebook.ipynb
 
-# Analyze a notebook and save the report to a file
-notebook-analyzer path/to/notebook.ipynb -o report.json
+# Generate HTML report
+notebook-analyzer analyze path/to/notebook.ipynb --format html
 
-# Analyze all notebooks in a directory
-notebook-analyzer path/to/notebooks/
-
-# Choose output format (json or text)
-notebook-analyzer path/to/notebook.ipynb --format json
-
-# Get help
-notebook-analyzer --help
+# Generate Markdown report
+notebook-analyzer analyze path/to/notebook.ipynb --format markdown
 ```
 
 ### Python API
 
 ```python
-from notebook_analyzer import NotebookAnalyzer
+from notebook_analyzer import create_analyzer, create_report_generator
 
-analyzer = NotebookAnalyzer()
-report = analyzer.analyze("path/to/your/notebook.ipynb")
-print(report)
+# Create analyzer instance
+analyzer = create_analyzer()
+
+# Analyze notebook
+results = analyzer.analyze("path/to/notebook.ipynb")
+
+# Generate report
+report_gen = create_report_generator(output_dir="reports")
+report_path = report_gen.generate_report(results, format_type="html")
 ```
 
-## Output Format
+## Project Structure
 
-The analyzer generates a structured report containing:
+```
+notebook-analyzer-v2/
+└── src/
+    └── notebook_analyzer/
+        ├── analyzer/           # Core analysis functionality
+        ├── reporting/         # Report generation
+        │   ├── templates/     # HTML and Markdown templates
+        │   └── formatters/    # Metric formatters
+        │       ├── builder_mindset/
+        │       └── business_intelligence/
+        └── cli/              # Command-line interface
+```
 
-1. Overall Quality Score
-2. Code Formatting Analysis
-   - PEP8 compliance
-   - Code style consistency
-3. Documentation Analysis
-   - Markdown cell quality
-   - Code comments coverage and quality
-4. Detailed Findings
-   - Positive aspects
-   - Areas for improvement
+## Available Metrics
 
-## Requirements
+### Builder Mindset Metrics
+- Code Formatting Analysis
+- Code Structure Analysis
+- Code Comments Analysis
+- Code Conciseness Analysis
+- Code Reusability Analysis
+- Advanced Techniques Analysis
+- Dataset Join Analysis
 
-- Python 3.8+
-- Jupyter Notebook
+### Business Intelligence Metrics
+- Visualization Types Analysis
+- Visualization Formatting Analysis
+
+## Report Types
+
+### HTML Reports
+- Interactive visualizations
+- Collapsible sections
+- Score summaries
+- Detailed metrics
+
+### Markdown Reports
+- GitHub-compatible format
+- Plain text results
+- Easy to version control
+
+## Package Information
+
+- Version: 1.0.0
+- Author: Barrhann
+- Email: barrhann@github.com
+- Last Updated: 2025-02-17 02:13:15
+
+## License
+
+This project is licensed under the MIT License.
+
+---
+
+**Note**: This project is actively maintained. For bug reports or feature requests, please open an issue on GitHub.
