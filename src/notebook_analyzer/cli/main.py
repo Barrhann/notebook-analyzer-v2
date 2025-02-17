@@ -6,7 +6,7 @@ allowing users to analyze Jupyter notebooks and generate reports.
 
 Created by: Barrhann
 Created on: 2025-02-17
-Last Updated: 2025-02-17 01:45:36
+Last Updated: 2025-02-17 22:51:46
 """
 
 import argparse
@@ -15,6 +15,7 @@ import os
 from typing import List, Optional
 from pathlib import Path
 
+from ..analyzers.notebook_analyzer import NotebookAnalyzer  # Updated import
 from ..analyzers import (
     BaseAnalyzer,
     builder_mindset,

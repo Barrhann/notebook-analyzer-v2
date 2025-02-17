@@ -4,26 +4,13 @@ Notebook Analyzers Package.
 This package contains analyzer modules for evaluating different aspects of Jupyter notebooks.
 It includes analyzers for builder mindset and business intelligence aspects.
 
-Analyzer Categories:
-    - Builder Mindset: Advanced coding patterns and techniques
-        - Code Formatting
-        - Code Comments
-        - Code Conciseness
-        - Code Structure
-        - Code Reusability
-        - Dataset Join
-        - Advanced Techniques
-
-    - Business Intelligence: Visualization and reporting
-        - Visualization Types
-        - Visualization Formatting
-
 Created by: Barrhann
 Created on: 2025-02-17
-Last Updated: 2025-02-17 02:37:44
+Last Updated: 2025-02-17 22:51:46
 """
 
 from .base_analyzer import BaseAnalyzer, AnalysisError
+from .notebook_analyzer import NotebookAnalyzer  # Added import
 from .builder_mindset import (  # Explicit imports for better code completion
     CodeFormattingAnalyzer,
     CodeStructureAnalyzer,
@@ -44,6 +31,7 @@ __all__ = [
     # Base classes
     'BaseAnalyzer',
     'AnalysisError',
+    'NotebookAnalyzer',  # Added to exports
     
     # Categories
     'builder_mindset',
@@ -78,7 +66,7 @@ PACKAGE_INFO = {
     ],
     'version': __version__,
     'author': __author__,
-    'last_updated': '2025-02-17 02:37:44'
+    'last_updated': '2025-02-17 22:51:46'
 }
 
 def get_all_analyzers():

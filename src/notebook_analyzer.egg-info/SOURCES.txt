@@ -26,7 +26,7 @@ src/notebook_analyzer/core/__init__.py
 src/notebook_analyzer/core/analysis_orchestrator.py
 src/notebook_analyzer/core/notebook_reader.py
 src/notebook_analyzer/models/__init__.py
-src/notebook_analyzer/models/analysis_resilt.py
+src/notebook_analyzer/models/analysis_result.py
 src/notebook_analyzer/models/metric_block.py
 src/notebook_analyzer/models/report_data.py
 src/notebook_analyzer/reporting/__init__.py
