@@ -6,18 +6,13 @@ by combining analysis results with appropriate templates and formatters.
 
 Created by: Barrhann
 Created on: 2025-02-17
-Last Updated: 2025-02-17 01:42:32
+Last Updated: 2025-02-17 23:16:33
 """
 
 from typing import Dict, Any, List, Optional
 import os
 from datetime import datetime
-from .templates import (
-    HTMLTemplate,
-    MarkdownTemplate,
-    get_template_by_format,
-    get_file_extension
-)
+from .templates import HTMLTemplate, MarkdownTemplate
 from .formatters.builder_mindset import (
     CodeFormattingFormatter,
     CodeStructureFormatter,
@@ -31,6 +26,26 @@ from .formatters.business_intelligence import (
     VisualizationTypesFormatter,
     VisualizationFormattingFormatter
 )
+
+
+def get_template_by_format(format_type: str) -> type:
+    """Get the appropriate template class for the given format."""
+    templates = {
+        'html': HTMLTemplate,
+        'markdown': MarkdownTemplate
+    }
+    if format_type.lower() not in templates:
+        raise ValueError(f"Unsupported format type: {format_type}")
+    return templates[format_type.lower()]
+
+
+def get_file_extension(format_type: str) -> str:
+    """Get the file extension for the given format."""
+    extensions = {
+        'html': '.html',
+        'markdown': '.md'
+    }
+    return extensions.get(format_type.lower(), '')
 
 
 class ReportGenerator:
@@ -93,7 +108,7 @@ class ReportGenerator:
         
         # Get appropriate template
         template_class = get_template_by_format(format_type)
-        template = template_class(self.output_dir)
+        template = template_class()  # Fixed: removed output_dir parameter
         
         # Generate report content
         content = template.render(report_data)
