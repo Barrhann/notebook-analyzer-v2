@@ -1,3 +1,7 @@
 .DS_Store
 *.egg-info/
 build/
+<<<<<<< HEAD
+=======
+notebook_analyzer.egg-info/
+>>>>>>> 7c73398 (Update)
