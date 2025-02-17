@@ -6,7 +6,7 @@ allowing users to analyze Jupyter notebooks and generate reports.
 
 Created by: Barrhann
 Created on: 2025-02-17
-Last Updated: 2025-02-17 22:51:46
+Last Updated: 2025-02-17 23:11:34
 """
 
 import argparse
@@ -16,11 +16,6 @@ from typing import List, Optional
 from pathlib import Path
 
 from ..core.analysis_orchestrator import AnalysisOrchestrator
-from ..analyzers import (
-    BaseAnalyzer,
-    builder_mindset,
-    business_intelligence
-)
 from ..reporting import (
     create_report_generator,
     get_available_formatters,
@@ -97,6 +92,13 @@ def parse_args(args: List[str]) -> argparse.Namespace:
         help="Enable verbose output"
     )
 
+    parser.add_argument(
+        "--parallel",
+        action="store_true",
+        default=True,
+        help="Run analyzers in parallel (default: True)"
+    )
+
     return parser.parse_args(args)
 
 
@@ -153,7 +155,8 @@ def analyze_notebook(
     notebook_path: Path,
     categories: List[str],
     metrics: Optional[List[str]],
-    verbose: bool
+    verbose: bool,
+    parallel: bool = True
 ) -> dict:
     """
     Analyze a single notebook.
@@ -163,6 +166,7 @@ def analyze_notebook(
         categories (List[str]): Categories to analyze
         metrics (Optional[List[str]]): Specific metrics to analyze
         verbose (bool): Whether to print verbose output
+        parallel (bool): Whether to run analyzers in parallel
 
     Returns:
         dict: Analysis results
@@ -173,10 +177,9 @@ def analyze_notebook(
     analyzer = AnalysisOrchestrator()
     
     try:
-        results = analyzer.analyze(
-            notebook_path,
-            categories=categories,
-            metrics=metrics
+        results = analyzer.analyze_notebook(  # Changed from analyze() to analyze_notebook()
+            str(notebook_path),
+            parallel=parallel
         )
         
         if verbose:
@@ -250,7 +253,8 @@ def main():
             notebook,
             args.categories,
             args.metrics,
-            args.verbose
+            args.verbose,
+            args.parallel
         )
         
         if results:
