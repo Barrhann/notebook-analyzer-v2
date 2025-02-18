@@ -148,44 +148,143 @@ class ReportGenerator:
         metadata = analysis_results.get('metadata', {})
         summary = analysis_results.get('summary', {})
 
-        # Initialize report data with basic information
+        # Get filename from metadata or use a default
+        filename = metadata.get('filename', 'Untitled')
+        if not filename.endswith('.ipynb'):
+            filename += '.ipynb'
+
+        # Initialize report data
         report_data = {
-            'title': f"Notebook Analysis Report - {metadata.get('filename', 'Untitled')}",
+            'title': f"Notebook Analysis Report - {filename}",
             'timestamp': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
             'version': '1.0.0',
-            'overall_score': self._calculate_overall_score(analysis_results),
+            'overall_score': summary.get('overall_score', 0),
             'sections': []
         }
 
-        # Add summary section if available
-        if summary and summary != {'overall_score': 0}:
-            report_data['sections'].append(self._create_summary_section(summary))
+        # Add summary section first
+        summary_section = {
+            'title': 'Analysis Summary',
+            'content': [],
+            'findings': summary.get('findings', []),
+            'suggestions': summary.get('suggestions', []),
+            'score': summary.get('overall_score', 0),
+            'charts': summary.get('charts', [])
+        }
+
+        # Add overall metrics summary
+        if 'metrics_summary' in summary:
+            summary_section['content'].append('### Overall Metrics Performance\n')
+            for metric, score in summary['metrics_summary'].items():
+                summary_section['content'].append(f"- {metric}: {score:.2f}/100")
+
+        # Add key statistics if available
+        if 'statistics' in summary:
+            summary_section['content'].append('\n### Key Statistics\n')
+            for stat, value in summary['statistics'].items():
+                summary_section['content'].append(f"- {stat}: {value}")
+
+        report_data['sections'].append(summary_section)
 
         # Process builder mindset metrics
         if 'builder_mindset' in results:
-            builder_sections = self._process_metric_category(
-                results['builder_mindset'],
-                'builder_mindset'
-            )
-            if builder_sections:
-                report_data['sections'].extend(builder_sections)
+            category_section = {
+                'title': 'Builder Mindset Analysis',
+                'content': ['Analysis of code quality and best practices:'],
+                'findings': [],
+                'suggestions': [],
+                'score': 0,
+                'charts': []
+            }
+
+            scores = []
+            for metric_name, metric_data in results['builder_mindset'].items():
+                if isinstance(metric_data, dict):
+                    scores.append(metric_data.get('score', 0))
+                    subsection = [f"\n### {metric_name.replace('_', ' ').title()}"]
+                    
+                    if 'description' in metric_data:
+                        subsection.append(f"\n{metric_data['description']}")
+                    
+                    if 'score' in metric_data:
+                        subsection.append(f"\nScore: {metric_data['score']:.2f}/100")
+                    
+                    if 'findings' in metric_data:
+                        category_section['findings'].extend(metric_data['findings'])
+                    
+                    if 'suggestions' in metric_data:
+                        category_section['suggestions'].extend(metric_data['suggestions'])
+                    
+                    if 'charts' in metric_data:
+                        category_section['charts'].extend(metric_data['charts'])
+                    
+                    category_section['content'].extend(subsection)
+
+            if scores:
+                category_section['score'] = sum(scores) / len(scores)
+            
+            report_data['sections'].append(category_section)
 
         # Process business intelligence metrics
         if 'business_intelligence' in results:
-            bi_sections = self._process_metric_category(
-                results['business_intelligence'],
-                'business_intelligence'
-            )
-            if bi_sections:
-                report_data['sections'].extend(bi_sections)
+            category_section = {
+                'title': 'Business Intelligence Analysis',
+                'content': ['Analysis of data visualization and analytics:'],
+                'findings': [],
+                'suggestions': [],
+                'score': 0,
+                'charts': []
+            }
+
+            scores = []
+            for metric_name, metric_data in results['business_intelligence'].items():
+                if isinstance(metric_data, dict):
+                    scores.append(metric_data.get('score', 0))
+                    subsection = [f"\n### {metric_name.replace('_', ' ').title()}"]
+                    
+                    if 'description' in metric_data:
+                        subsection.append(f"\n{metric_data['description']}")
+                    
+                    if 'score' in metric_data:
+                        subsection.append(f"\nScore: {metric_data['score']:.2f}/100")
+                    
+                    if 'findings' in metric_data:
+                        category_section['findings'].extend(metric_data['findings'])
+                    
+                    if 'suggestions' in metric_data:
+                        category_section['suggestions'].extend(metric_data['suggestions'])
+                    
+                    if 'charts' in metric_data:
+                        category_section['charts'].extend(metric_data['charts'])
+                    
+                    category_section['content'].extend(subsection)
+
+            if scores:
+                category_section['score'] = sum(scores) / len(scores)
+            
+            report_data['sections'].append(category_section)
 
         # Add error section if there are any errors
         if summary.get('errors'):
-            report_data['sections'].append(self._create_error_section(summary['errors']))
+            report_data['sections'].append({
+                'title': 'Analysis Errors',
+                'content': ['The following errors occurred during analysis:'],
+                'findings': summary['errors'],
+                'suggestions': ['Please check the error messages and try again.'],
+                'score': 0,
+                'charts': []
+            })
 
-        # Add default section if no sections were created
+        # Ensure there's at least one section
         if not report_data['sections']:
-            report_data['sections'].append(self._create_default_section())
+            report_data['sections'].append({
+                'title': 'Analysis Results',
+                'content': ['No detailed analysis results available.'],
+                'findings': ['Analysis completed with no detailed metrics.'],
+                'suggestions': ['Try running the analysis with specific metrics enabled.'],
+                'score': report_data['overall_score'],
+                'charts': []
+            })
 
         return report_data
 

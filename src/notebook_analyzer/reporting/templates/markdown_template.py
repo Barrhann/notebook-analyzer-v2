@@ -1,22 +1,11 @@
-"""
-Markdown Report Template.
-
-This module provides the Markdown template structure and generation functionality
-for notebook analysis reports.
-
-Created by: Barrhann
-Created on: 2025-02-17
-Last Updated: 2025-02-17 01:38:51
-"""
-
 from typing import Dict, Any, List
 import json
 import base64
 import io
 import os
+from datetime import datetime
 import matplotlib.pyplot as plt
 import seaborn as sns
-
 
 class MarkdownTemplate:
     """
@@ -56,116 +45,112 @@ class MarkdownTemplate:
         sections.append(self._render_toc(report_data))
         
         # Add sections
+        sections.append("---\n")  # Add separator after TOC
         for section in report_data['sections']:
             sections.append(self._render_section(section))
+            sections.append("\n---\n")  # Add separator between sections
         
         # Add footer
         sections.append(self._render_footer(report_data))
         
-        return '\n\n'.join(sections)
+        return '\n'.join(sections)
 
     def _render_header(self, report_data: Dict[str, Any]) -> str:
-        """
-        Render the report header.
-
-        Args:
-            report_data (Dict[str, Any]): Report data
-
-        Returns:
-            str: Markdown formatted header
-        """
-        return f"""# {report_data['title']}
-
-> Generated: {report_data['timestamp']}  
-> Overall Score: {report_data['overall_score']}/100
-
----"""
+        """Render the report header."""
+        return (
+            f"# {report_data['title']}\n\n"
+            f"> Generated: {report_data['timestamp']}  \n"
+            f"> Overall Score: {report_data.get('overall_score', 0):.2f}/100\n\n"
+            "---"
+        )
 
     def _render_toc(self, report_data: Dict[str, Any]) -> str:
-        """
-        Render the table of contents.
-
-        Args:
-            report_data (Dict[str, Any]): Report data
-
-        Returns:
-            str: Markdown formatted table of contents
-        """
-        toc = ["## Table of Contents\n"]
+        """Render the table of contents."""
+        sections = ["## Table of Contents\n"]
         
+        # Add each section to TOC with proper link formatting
         for i, section in enumerate(report_data['sections'], 1):
-            toc.append(f"{i}. [{section['title']}](#{section['title'].lower().replace(' ', '-')})")
+            link = section['title'].lower().replace(' ', '-')
+            sections.append(f"{i}. [{section['title']}](#{link})")
         
-        return '\n'.join(toc) + "\n\n---"
+        return '\n'.join(sections)
 
     def _render_section(self, section: Dict[str, Any]) -> str:
         """
         Render a report section.
-
-        Args:
-            section (Dict[str, Any]): Section data
-
-        Returns:
-            str: Markdown formatted section
-        """
-        parts = [f"## {section['title']}\n"]
         
-        # Add charts if present
-        if section.get('charts'):
-            parts.append(self._render_charts(section['charts']))
+        Args:
+            section (Dict[str, Any]): Section data including title, content, findings, etc.
+            
+        Returns:
+            str: Formatted section content
+        """
+        parts = []
+        
+        # Add section title
+        parts.append(f"## {section['title']}\n")
+        
+        # Add score if present
+        if 'score' in section:
+            parts.append(f"> Section Score: {section['score']:.2f}/100\n")
         
         # Add content
         if section.get('content'):
-            parts.append(section['content'])
+            # If content is a list, join with newlines
+            if isinstance(section['content'], list):
+                parts.append('\n'.join(section['content']))
+            else:
+                parts.append(str(section['content']))
+            parts.append('\n')
+        
+        # Add charts if present
+        if section.get('charts'):
+            chart_content = self._render_charts(section['charts'])
+            if chart_content:
+                parts.append("\n### Charts\n")
+                parts.append(chart_content)
+                parts.append('\n')
         
         # Add findings
         if section.get('findings'):
             parts.append("\n### Key Findings\n")
             for finding in section['findings']:
                 parts.append(f"- {finding}")
+            parts.append('\n')
         
         # Add suggestions
         if section.get('suggestions'):
             parts.append("\n### Suggestions\n")
             for suggestion in section['suggestions']:
                 parts.append(f"- {suggestion}")
+            parts.append('\n')
         
         return '\n'.join(parts)
 
     def _render_footer(self, report_data: Dict[str, Any]) -> str:
-        """
-        Render the report footer.
-
-        Args:
-            report_data (Dict[str, Any]): Report data
-
-        Returns:
-            str: Markdown formatted footer
-        """
-        return f"""
----
-
-Generated by Notebook Analyzer v{report_data['version']}  
-© {report_data['timestamp'][:4]} Notebook Analyzer"""
+        """Render the report footer."""
+        year = datetime.now().year
+        return (
+            f"\nGenerated by Notebook Analyzer v{report_data.get('version', '1.0.0')}  \n"
+            f"© {year} Notebook Analyzer"
+        )
 
     def _render_charts(self, charts: List[Dict[str, Any]]) -> str:
-        """
-        Render charts as embedded images.
-
-        Args:
-            charts (List[Dict[str, Any]]): List of chart data
-
-        Returns:
-            str: Markdown formatted chart images
-        """
+        """Render charts as embedded images."""
+        if not charts:
+            return ""
+            
         chart_md = []
-        
         for chart in charts:
-            if chart['type'] in self.chart_generators:
+            try:
                 image_path = self._generate_chart_image(chart)
-                chart_md.append(f"![{chart.get('title', 'Chart')}]({image_path})")
+                title = chart.get('title', 'Chart')
+                chart_md.append(f"![{title}]({image_path})")
+            except Exception as e:
+                print(f"Failed to generate chart: {str(e)}")
+                continue
         
-        return '\n'.join(chart_md) + '\n'
+        return '\n'.join(chart_md)
 
     def _get_chart_generators(self) -> Dict[str, callable]:
         """

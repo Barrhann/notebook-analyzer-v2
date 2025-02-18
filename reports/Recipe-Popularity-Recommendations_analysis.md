@@ -1,14 +1,18 @@
 # Notebook Analysis Report - Recipe-Popularity-Recommendations.ipynb
 
-> Generated: 2025-02-18 00:03:51  
+> Generated: 2025-02-18 00:22:49  
 > Overall Score: 63.11/100
 
 ---
 
 ## Table of Contents
 
+1. [Analysis Summary](#analysis-summary)
 
 ---
+
+## Analysis Summary
+
 
 
 ---
