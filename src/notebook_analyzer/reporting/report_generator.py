@@ -6,7 +6,7 @@ by combining analysis results with appropriate templates and formatters.
 
 Created by: Barrhann
 Created on: 2025-02-17
-Last Updated: 2025-02-17 23:16:33
+Last Updated: 2025-02-18 00:20:29
 """
 
 from typing import Dict, Any, List, Optional
@@ -101,21 +101,33 @@ class ReportGenerator:
             str: Path to the generated report file
 
         Raises:
-            ValueError: If format type is not supported
+            ValueError: If format type is not supported or if results are invalid
         """
+        if not analysis_results:
+            raise ValueError("Analysis results cannot be empty")
+
         # Prepare report data
-        report_data = self._prepare_report_data(analysis_results)
-        
+        try:
+            report_data = self._prepare_report_data(analysis_results)
+        except Exception as e:
+            raise ValueError(f"Failed to prepare report data: {str(e)}")
+
         # Get appropriate template
         template_class = get_template_by_format(format_type)
         template = template_class()
-        
+
         # Generate report content
-        content = template.render(report_data)
-        
+        try:
+            content = template.render(report_data)
+        except Exception as e:
+            raise ValueError(f"Failed to render report template: {str(e)}")
+
         # Save report
-        file_path = self._save_report(content, format_type, filename)
-        
+        try:
+            file_path = self._save_report(content, format_type, filename)
+        except Exception as e:
+            raise ValueError(f"Failed to save report: {str(e)}")
+
         return file_path
 
     def _prepare_report_data(self, analysis_results: Dict[str, Any]) -> Dict[str, Any]:
@@ -128,119 +140,175 @@ class ReportGenerator:
         Returns:
             Dict[str, Any]: Formatted report data
         """
-        # Extract the actual results from the nested structure
-        results = analysis_results.get('results', {})
+        # Handle both nested and flat result structures
+        results = (analysis_results.get('results', {})
+                  if isinstance(analysis_results.get('results'), dict)
+                  else analysis_results)
+        
         metadata = analysis_results.get('metadata', {})
         summary = analysis_results.get('summary', {})
 
+        # Initialize report data with basic information
         report_data = {
             'title': f"Notebook Analysis Report - {metadata.get('filename', 'Untitled')}",
             'timestamp': datetime.utcnow().strftime('%Y-%m-%d %H:%M:%S'),
             'version': '1.0.0',
-            'overall_score': summary.get('overall_score', 0),
+            'overall_score': self._calculate_overall_score(analysis_results),
             'sections': []
         }
 
+        # Add summary section if available
+        if summary and summary != {'overall_score': 0}:
+            report_data['sections'].append(self._create_summary_section(summary))
+
         # Process builder mindset metrics
         if 'builder_mindset' in results:
-            builder_sections = []
-            for metric_name, metric_data in results['builder_mindset'].items():
-                if metric_name in self.formatters['builder_mindset']:
-                    formatter = self.formatters['builder_mindset'][metric_name]
-                    section = {
-                        'title': metric_name.replace('_', ' ').title(),
-                        'content': formatter.format_metrics(metric_data),
-                        'findings': metric_data.get('findings', []),
-                        'suggestions': metric_data.get('suggestions', []),
-                        'score': metric_data.get('score', 0),
-                        'charts': []
-                    }
-                    
-                    # Add charts if available
-                    if 'charts' in metric_data:
-                        section['charts'] = metric_data['charts']
-                    
-                    builder_sections.append(section)
-            
+            builder_sections = self._process_metric_category(
+                results['builder_mindset'],
+                'builder_mindset'
+            )
             if builder_sections:
                 report_data['sections'].extend(builder_sections)
 
         # Process business intelligence metrics
         if 'business_intelligence' in results:
-            bi_sections = []
-            for metric_name, metric_data in results['business_intelligence'].items():
-                if metric_name in self.formatters['business_intelligence']:
-                    formatter = self.formatters['business_intelligence'][metric_name]
-                    section = {
-                        'title': metric_name.replace('_', ' ').title(),
-                        'content': formatter.format_metrics(metric_data),
-                        'findings': metric_data.get('findings', []),
-                        'suggestions': metric_data.get('suggestions', []),
-                        'score': metric_data.get('score', 0),
-                        'charts': []
-                    }
-                    
-                    # Add charts if available
-                    if 'charts' in metric_data:
-                        section['charts'] = metric_data['charts']
-                    
-                    bi_sections.append(section)
-            
+            bi_sections = self._process_metric_category(
+                results['business_intelligence'],
+                'business_intelligence'
+            )
             if bi_sections:
                 report_data['sections'].extend(bi_sections)
 
         # Add error section if there are any errors
         if summary.get('errors'):
-            report_data['sections'].append({
-                'title': 'Analysis Errors',
-                'content': '\n'.join(summary['errors']),
-                'findings': [],
-                'suggestions': ['Please check the error messages and try again.'],
-                'score': 0,
-                'charts': []
-            })
+            report_data['sections'].append(self._create_error_section(summary['errors']))
+
+        # Add default section if no sections were created
+        if not report_data['sections']:
+            report_data['sections'].append(self._create_default_section())
 
         return report_data
 
-    def _format_builder_mindset_sections(
-        self, builder_metrics: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
+    def _process_metric_category(self,
+                               metrics: Dict[str, Any],
+                               category: str) -> List[Dict[str, Any]]:
         """
-        Format builder mindset metrics into report sections.
+        Process metrics for a specific category.
 
         Args:
-            builder_metrics (Dict[str, Any]): Builder mindset analysis results
+            metrics (Dict[str, Any]): Metrics data
+            category (str): Category name ('builder_mindset' or 'business_intelligence')
 
         Returns:
-            List[Dict[str, Any]]: Formatted sections
+            List[Dict[str, Any]]: List of formatted sections
         """
         sections = []
-        for metric_type, formatter in self.formatters['builder_mindset'].items():
-            if metric_type in builder_metrics:
-                sections.append(
-                    formatter.format_metrics(builder_metrics[metric_type]).to_dict()
-                )
+        for metric_name, metric_data in metrics.items():
+            if metric_name in self.formatters[category]:
+                formatter = self.formatters[category][metric_name]
+                try:
+                    section = self._create_metric_section(metric_name, metric_data, formatter)
+                    sections.append(section)
+                except Exception as e:
+                    # Log the error but continue processing other metrics
+                    print(f"Error processing metric {metric_name}: {str(e)}")
         return sections
 
-    def _format_business_intelligence_sections(
-        self, bi_metrics: Dict[str, Any]
-    ) -> List[Dict[str, Any]]:
+    def _create_metric_section(self,
+                             metric_name: str,
+                             metric_data: Dict[str, Any],
+                             formatter: Any) -> Dict[str, Any]:
         """
-        Format business intelligence metrics into report sections.
+        Create a section for a specific metric.
 
         Args:
-            bi_metrics (Dict[str, Any]): Business intelligence analysis results
+            metric_name (str): Name of the metric
+            metric_data (Dict[str, Any]): Metric data
+            formatter: Formatter for the metric
 
         Returns:
-            List[Dict[str, Any]]: Formatted sections
+            Dict[str, Any]: Formatted section
         """
-        sections = []
-        for metric_type, formatter in self.formatters['business_intelligence'].items():
-            if metric_type in bi_metrics:
-                sections.append(
-                    formatter.format_metrics(bi_metrics[metric_type]).to_dict()
-                )
-        return sections
+        # Handle both object and dict metric data
+        if hasattr(metric_data, 'to_dict'):
+            metric_dict = metric_data.to_dict()
+        else:
+            metric_dict = metric_data
+
+        section = {
+            'title': metric_name.replace('_', ' ').title(),
+            'content': formatter.format_metrics(metric_dict),
+            'findings': metric_dict.get('findings', []),
+            'suggestions': metric_dict.get('suggestions', []),
+            'score': metric_dict.get('score', 0),
+            'charts': metric_dict.get('charts', [])
+        }
+
+        return section
+
+    def _create_summary_section(self, summary: Dict[str, Any]) -> Dict[str, Any]:
+        """
+        Create the summary section.
+
+        Args:
+            summary (Dict[str, Any]): Summary data
+
+        Returns:
+            Dict[str, Any]: Formatted summary section
+        """
+        content_parts = []
+        
+        if 'description' in summary:
+            content_parts.append(summary['description'])
+        
+        if 'metrics_summary' in summary:
+            content_parts.append("\n### Metrics Summary\n")
+            for metric, score in summary['metrics_summary'].items():
+                content_parts.append(f"- {metric}: {score}/100")
+
+        return {
+            'title': 'Analysis Summary',
+            'content': '\n'.join(content_parts),
+            'findings': summary.get('findings', []),
+            'suggestions': summary.get('suggestions', []),
+            'score': summary.get('overall_score', 0),
+            'charts': summary.get('charts', [])
+        }
+
+    def _create_error_section(self, errors: List[str]) -> Dict[str, Any]:
+        """
+        Create the error section.
+
+        Args:
+            errors (List[str]): List of error messages
+
+        Returns:
+            Dict[str, Any]: Formatted error section
+        """
+        return {
+            'title': 'Analysis Errors',
+            'content': '\n'.join(errors),
+            'findings': [],
+            'suggestions': ['Please check the error messages and try again.'],
+            'score': 0,
+            'charts': []
+        }
+
+    def _create_default_section(self) -> Dict[str, Any]:
+        """
+        Create a default section when no other sections are available.
+
+        Returns:
+            Dict[str, Any]: Default section
+        """
+        return {
+            'title': 'Analysis Results',
+            'content': 'No detailed analysis results available.',
+            'findings': ['Analysis completed with no detailed metrics.'],
+            'suggestions': ['Try running the analysis with specific metrics enabled.'],
+            'score': 0,
+            'charts': []
+        }
 
     def _calculate_overall_score(self, analysis_results: Dict[str, Any]) -> int:
         """
@@ -252,20 +320,32 @@ class ReportGenerator:
         Returns:
             int: Overall score (0-100)
         """
+        # First try to get the score from summary
+        if 'summary' in analysis_results:
+            score = analysis_results['summary'].get('overall_score')
+            if score is not None:
+                return score
+
+        # If no summary score, calculate from individual metrics
         scores = []
+        results = analysis_results.get('results', analysis_results)
         
         # Collect builder mindset scores
-        if 'builder_mindset' in analysis_results:
-            for metric in analysis_results['builder_mindset'].values():
+        if 'builder_mindset' in results:
+            for metric in results['builder_mindset'].values():
                 if hasattr(metric, 'score'):
                     scores.append(metric.score)
-        
+                elif isinstance(metric, dict) and 'score' in metric:
+                    scores.append(metric['score'])
+
         # Collect business intelligence scores
-        if 'business_intelligence' in analysis_results:
-            for metric in analysis_results['business_intelligence'].values():
+        if 'business_intelligence' in results:
+            for metric in results['business_intelligence'].values():
                 if hasattr(metric, 'score'):
                     scores.append(metric.score)
-        
+                elif isinstance(metric, dict) and 'score' in metric:
+                    scores.append(metric['score'])
+
         return round(sum(scores) / len(scores)) if scores else 0
 
     def _save_report(self,
@@ -283,14 +363,20 @@ class ReportGenerator:
         Returns:
             str: Path to the saved report file
         """
+        if not content:
+            raise ValueError("Report content cannot be empty")
+
         if filename is None:
             timestamp = datetime.utcnow().strftime('%Y%m%d_%H%M%S')
             filename = f"notebook_analysis_{timestamp}"
-        
+
         extension = get_file_extension(format_type)
         file_path = os.path.join(self.output_dir, f"{filename}{extension}")
-        
-        with open(file_path, 'w', encoding='utf-8') as f:
-            f.write(content)
-        
+
+        try:
+            with open(file_path, 'w', encoding='utf-8') as f:
+                f.write(content)
+        except Exception as e:
+            raise ValueError(f"Failed to write report to file: {str(e)}")
+
         return file_path

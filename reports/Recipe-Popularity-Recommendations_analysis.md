@@ -1,29 +1,14 @@
 # Notebook Analysis Report - Recipe-Popularity-Recommendations.ipynb
 
-> Generated: 2025-02-17 23:29:41  
-> Overall Score: 15.37/100
+> Generated: 2025-02-18 00:03:51  
+> Overall Score: 63.11/100
 
 ---
 
 ## Table of Contents
 
-1. [Analysis Errors](#analysis-errors)
 
 ---
-
-## Analysis Errors
-
-Error in builder_mindset/Code Structure: Error analyzing code structure: 'FunctionVisitor' object has no attribute 'function_count'
-Error in builder_mindset/Dataset Join: Error analyzing dataset joins: 'PandasJoinVisitor' object has no attribute 'PANDAS_JOIN_METHODS'
-Error in business_intelligence/Visualization Types: Error analyzing visualizations: 'LibraryVisitor' object has no attribute 'PLOTTING_LIBRARIES'
-Error in builder_mindset/Code Conciseness: Error analyzing code conciseness: 'DepthVisitor' object has no attribute 'MAX_FUNCTION_LENGTH'
-Error in builder_mindset/Code Reusability: Error analyzing code reusability: 'AbstractionVisitor' object has no attribute 'MAX_FUNCTION_SIZE'
-Error in builder_mindset/Advanced Techniques: Error analyzing advanced techniques: module 'ast' has no attribute 'Append'
-Error in business_intelligence/Visualization Formatting: Error analyzing visualization formatting: 'ColorVisitor' object has no attribute '_check_color_parameters'
-
-### Suggestions
-
-- Please check the error messages and try again.
 
 
 ---
