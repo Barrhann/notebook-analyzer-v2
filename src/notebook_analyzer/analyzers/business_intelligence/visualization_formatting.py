@@ -1,59 +1,223 @@
 """
 Visualization Formatting Analyzer Module.
 
-This module analyzes the formatting and styling of data visualizations in Jupyter notebook cells.
-It evaluates aesthetic choices, color palettes, text formatting, and layout configurations.
+This module analyzes visualization formatting practices in Jupyter notebooks.
+It evaluates plot aesthetics, readability, and formatting best practices.
 
 Created by: Barrhann
-Date: 2025-02-17
-Last Updated: 2025-02-17 00:55:42
+Created on: 2025-02-17
+Last Updated: 2025-02-17 23:59:44
 """
 
 import ast
-from typing import Dict, Any, List, Tuple, Set
+from typing import Dict, Any, List, Set, Optional
 from collections import defaultdict
-import re
 from ..base_analyzer import BaseAnalyzer, AnalysisError
+
+
+class FormattingFeatures:
+    """Constants for visualization formatting analysis."""
+    
+    # Style parameters to check
+    STYLE_PARAMETERS = {
+        'figure': {'figsize', 'dpi', 'facecolor', 'edgecolor', 'layout'},
+        'axes': {'title', 'xlabel', 'ylabel', 'xlim', 'ylim', 'grid'},
+        'text': {'fontsize', 'fontweight', 'fontstyle', 'color'},
+        'legend': {'loc', 'bbox_to_anchor', 'frameon', 'title'},
+        'color': {'cmap', 'color', 'palette'}
+    }
+    
+    # Recommended parameter values
+    RECOMMENDED_VALUES = {
+        'figsize': (8, 6),  # Default size
+        'dpi': 100,         # Minimum DPI
+        'fontsize': 12,     # Minimum font size
+        'title_fontsize': 14
+    }
+    
+    # Aesthetic elements to check
+    AESTHETIC_ELEMENTS = {
+        'title': {'set_title', 'suptitle'},
+        'labels': {'set_xlabel', 'set_ylabel'},
+        'legend': {'legend'},
+        'grid': {'grid'},
+        'theme': {'style', 'set_style', 'set_theme'}
+    }
+    
+    # Pattern weights for scoring
+    PATTERN_WEIGHTS = {
+        'basic_formatting': 0.3,
+        'readability': 0.3,
+        'aesthetics': 0.2,
+        'consistency': 0.2
+    }
+
+
+class FormattingVisitor(ast.NodeVisitor):
+    """Visitor for analyzing visualization formatting."""
+
+    def __init__(self):
+        """Initialize the formatting visitor."""
+        self.format_calls = defaultdict(list)
+        self.style_settings = defaultdict(list)
+        self.aesthetic_elements = defaultdict(list)
+        self.issues = []
+        self.suggestions = []
+        self.current_figure = None
+
+    def visit_Call(self, node: ast.Call):
+        """
+        Visit call nodes.
+
+        Args:
+            node (ast.Call): The call node
+        """
+        if isinstance(node.func, ast.Attribute):
+            method_name = node.func.attr
+            base_obj = self._get_base_object(node.func.value)
+            
+            # Track formatting calls
+            self._analyze_formatting_call(method_name, base_obj, node)
+            
+            # Track style settings
+            self._analyze_style_settings(method_name, node)
+            
+            # Track aesthetic elements
+            self._analyze_aesthetic_elements(method_name, node)
+            
+        self.generic_visit(node)
+
+    def _get_base_object(self, node: ast.AST) -> str:
+        """
+        Get the base object name from an AST node.
+
+        Args:
+            node (ast.AST): The AST node
+
+        Returns:
+            str: Base object name
+        """
+        if isinstance(node, ast.Name):
+            return node.id
+        elif isinstance(node, ast.Attribute):
+            return self._get_base_object(node.value)
+        return ""
+
+    def _analyze_formatting_call(self, method_name: str, base_obj: str, node: ast.Call):
+        """
+        Analyze formatting method calls.
+
+        Args:
+            method_name (str): The method name
+            base_obj (str): The base object name
+            node (ast.Call): The call node
+        """
+        # Track figure creation and formatting
+        if method_name == 'figure':
+            self.current_figure = node.lineno
+            
+        for category, params in FormattingFeatures.STYLE_PARAMETERS.items():
+            if method_name in params:
+                self.format_calls[category].append({
+                    'method': method_name,
+                    'base': base_obj,
+                    'line': node.lineno,
+                    'args': len(node.args),
+                    'kwargs': {k.arg: self._extract_value(k.value) for k in node.keywords}
+                })
+                
+                # Check parameter values
+                self._check_parameter_values(category, method_name, node)
+
+    def _analyze_style_settings(self, method_name: str, node: ast.Call):
+        """
+        Analyze style-related settings.
+
+        Args:
+            method_name (str): The method name
+            node (ast.Call): The call node
+        """
+        style_methods = {'set_style', 'style', 'set_context', 'set_palette'}
+        if method_name in style_methods:
+            self.style_settings[method_name].append({
+                'line': node.lineno,
+                'args': [self._extract_value(arg) for arg in node.args],
+                'kwargs': {k.arg: self._extract_value(k.value) for k in node.keywords}
+            })
+
+    def _analyze_aesthetic_elements(self, method_name: str, node: ast.Call):
+        """
+        Analyze aesthetic element usage.
+
+        Args:
+            method_name (str): The method name
+            node (ast.Call): The call node
+        """
+        for element, methods in FormattingFeatures.AESTHETIC_ELEMENTS.items():
+            if method_name in methods:
+                self.aesthetic_elements[element].append({
+                    'line': node.lineno,
+                    'args': len(node.args),
+                    'kwargs': {k.arg: self._extract_value(k.value) for k in node.keywords}
+                })
+
+    def _check_parameter_values(self, category: str, method_name: str, node: ast.Call):
+        """
+        Check parameter values against recommendations.
+
+        Args:
+            category (str): The parameter category
+            method_name (str): The method name
+            node (ast.Call): The call node
+        """
+        for kw in node.keywords:
+            if kw.arg in FormattingFeatures.RECOMMENDED_VALUES:
+                value = self._extract_value(kw.value)
+                recommended = FormattingFeatures.RECOMMENDED_VALUES[kw.arg]
+                
+                if isinstance(recommended, tuple):
+                    if not isinstance(value, (list, tuple)) or len(value) != len(recommended):
+                        self.issues.append(
+                            f"Line {node.lineno}: Invalid {kw.arg} format"
+                        )
+                elif isinstance(value, (int, float)) and value < recommended:
+                    self.suggestions.append(
+                        f"Line {node.lineno}: Consider increasing {kw.arg} to at least {recommended}"
+                    )
+
+    def _extract_value(self, node: ast.AST) -> Any:
+        """
+        Extract value from an AST node.
+
+        Args:
+            node (ast.AST): The AST node
+
+        Returns:
+            Any: Extracted value
+        """
+        if isinstance(node, ast.Str):
+            return node.s
+        elif isinstance(node, ast.Num):
+            return node.n
+        elif isinstance(node, ast.List):
+            return [self._extract_value(elt) for elt in node.elts]
+        elif isinstance(node, ast.Tuple):
+            return tuple(self._extract_value(elt) for elt in node.elts)
+        elif isinstance(node, ast.Name):
+            return node.id
+        return None
+
 
 class VisualizationFormattingAnalyzer(BaseAnalyzer):
     """
-    Analyzer for visualization formatting and styling.
+    Analyzer for visualization formatting practices.
     
     This analyzer evaluates:
-    - Color palette selection
-    - Text formatting and labeling
-    - Figure size and layout
-    - Theme consistency
-    - Grid and axis styling
-    
-    Attributes:
-        RECOMMENDED_FIGURE_SIZES (Dict[str, Tuple[int, int]]): Standard figure sizes
-        COLOR_PALETTES (Dict[str, List[str]]): Recommended color palettes
-        TEXT_SIZES (Dict[str, int]): Standard text sizes for different elements
+    - Basic plot formatting
+    - Text readability
+    - Visual aesthetics
+    - Style consistency
     """
-
-    RECOMMENDED_FIGURE_SIZES = {
-        'small': (6, 4),
-        'medium': (8, 6),
-        'large': (12, 8),
-        'wide': (16, 6),
-        'square': (8, 8)
-    }
-
-    COLOR_PALETTES = {
-        'sequential': ['Blues', 'Greens', 'Oranges', 'Purples', 'Reds'],
-        'diverging': ['RdBu', 'RdYlBu', 'RdYlGn', 'Spectral', 'coolwarm'],
-        'qualitative': ['Set1', 'Set2', 'Set3', 'Paired', 'Dark2'],
-        'colorblind_friendly': ['viridis', 'plasma', 'inferno', 'cividis']
-    }
-
-    TEXT_SIZES = {
-        'title': 16,
-        'axis_label': 12,
-        'tick_label': 10,
-        'legend': 10,
-        'annotation': 11
-    }
 
     def __init__(self):
         """Initialize the visualization formatting analyzer."""
@@ -63,14 +227,12 @@ class VisualizationFormattingAnalyzer(BaseAnalyzer):
     def _reset_metrics(self) -> None:
         """Reset all metrics for a new analysis."""
         self.metrics = {
-            'color_usage': [],
-            'text_formatting': [],
-            'layout_config': [],
-            'theme_consistency': [],
-            'style_issues': []
+            'format_calls': defaultdict(list),
+            'style_settings': defaultdict(list),
+            'aesthetic_elements': defaultdict(list),
+            'issues': [],
+            'suggestions': []
         }
-        self.style_counts = defaultdict(int)
-        self.theme_usage = defaultdict(int)
 
     def get_metric_type(self) -> str:
         """Get the type of metric this analyzer produces."""
@@ -78,7 +240,7 @@ class VisualizationFormattingAnalyzer(BaseAnalyzer):
 
     def analyze(self, code: str) -> Dict[str, Any]:
         """
-        Analyze visualization formatting and styling.
+        Analyze visualization formatting practices.
 
         Args:
             code (str): The code to analyze
@@ -104,45 +266,43 @@ class VisualizationFormattingAnalyzer(BaseAnalyzer):
             except SyntaxError as e:
                 raise AnalysisError(f"Syntax error in code: {str(e)}")
 
-            # Perform various formatting checks
-            color_score = self._analyze_color_usage(tree)
-            text_score = self._analyze_text_formatting(tree)
-            layout_score = self._analyze_layout_configuration(tree)
-            theme_score = self._analyze_theme_consistency(tree)
-            style_score = self._analyze_style_elements(tree)
+            # Analyze formatting
+            visitor = FormattingVisitor()
+            visitor.visit(tree)
+
+            # Calculate component scores
+            basic_score = self._calculate_basic_score(visitor.format_calls)
+            readability_score = self._calculate_readability_score(visitor)
+            aesthetics_score = self._calculate_aesthetics_score(visitor.aesthetic_elements)
+            consistency_score = self._calculate_consistency_score(visitor)
 
             # Calculate overall score
             overall_score = self._calculate_overall_score([
-                (color_score, 0.25),    # 25% weight
-                (text_score, 0.25),     # 25% weight
-                (layout_score, 0.20),   # 20% weight
-                (theme_score, 0.15),    # 15% weight
-                (style_score, 0.15)     # 15% weight
+                (basic_score, FormattingFeatures.PATTERN_WEIGHTS['basic_formatting']),
+                (readability_score, FormattingFeatures.PATTERN_WEIGHTS['readability']),
+                (aesthetics_score, FormattingFeatures.PATTERN_WEIGHTS['aesthetics']),
+                (consistency_score, FormattingFeatures.PATTERN_WEIGHTS['consistency'])
             ])
+
+            # Store metrics
+            self.metrics['format_calls'] = dict(visitor.format_calls)
+            self.metrics['style_settings'] = dict(visitor.style_settings)
+            self.metrics['aesthetic_elements'] = dict(visitor.aesthetic_elements)
+            self.metrics['issues'] = visitor.issues
+            self.metrics['suggestions'] = visitor.suggestions
 
             # Prepare results
             results = {
                 'score': overall_score,
-                'findings': self._generate_findings(),
+                'findings': self._generate_findings(visitor),
                 'details': {
-                    'color_usage_score': color_score,
-                    'text_formatting_score': text_score,
-                    'layout_config_score': layout_score,
-                    'theme_consistency_score': theme_score,
-                    'style_elements_score': style_score,
-                    'metrics': {
-                        'color_usage': self.metrics['color_usage'],
-                        'text_formatting': self.metrics['text_formatting'],
-                        'layout_config': self.metrics['layout_config'],
-                        'theme_consistency': self.metrics['theme_consistency'],
-                        'style_issues': self.metrics['style_issues']
-                    },
-                    'stats': {
-                        'style_counts': dict(self.style_counts),
-                        'theme_usage': dict(self.theme_usage)
-                    }
+                    'basic_score': basic_score,
+                    'readability_score': readability_score,
+                    'aesthetics_score': aesthetics_score,
+                    'consistency_score': consistency_score,
+                    'metrics': self.metrics
                 },
-                'suggestions': self._generate_suggestions()
+                'suggestions': self._generate_suggestions(visitor)
             }
 
             if not self.validate_results(results):
@@ -153,247 +313,75 @@ class VisualizationFormattingAnalyzer(BaseAnalyzer):
         except Exception as e:
             raise AnalysisError(f"Error analyzing visualization formatting: {str(e)}")
 
-    def _analyze_color_usage(self, tree: ast.AST) -> float:
+    def _calculate_basic_score(self, format_calls: Dict[str, List[Dict[str, Any]]]) -> float:
         """
-        Analyze color palette usage and selection.
+        Calculate score based on basic formatting.
 
         Args:
-            tree (ast.AST): AST of the code
+            format_calls (Dict[str, List[Dict[str, Any]]]): Dictionary of formatting calls
 
         Returns:
-            float: Color usage score (0-100)
+            float: Basic formatting score (0-100)
         """
-        issues = []
-
-        class ColorVisitor(ast.NodeVisitor):
-            def visit_Call(self, node):
-                if isinstance(node.func, ast.Attribute):
-                    # Check color-related parameters
-                    self._check_color_parameters(node, issues)
-                self.generic_visit(node)
-
-        visitor = ColorVisitor()
-        visitor.visit(tree)
-
-        # Calculate score based on color usage issues
-        if not issues:
-            return 100.0
+        if not format_calls:
+            return 50.0  # Basic score for no formatting
             
-        score = max(0, 100 - (len(issues) * 10))
-        self.metrics['color_usage'].extend(issues)
-        return score
+        # Score based on formatting variety
+        categories_used = len(format_calls)
+        return min(100, 50 + (categories_used * 10))
 
-    def _analyze_text_formatting(self, tree: ast.AST) -> float:
+    def _calculate_readability_score(self, visitor: FormattingVisitor) -> float:
         """
-        Analyze text formatting and labeling.
+        Calculate score based on text readability.
 
         Args:
-            tree (ast.AST): AST of the code
+            visitor (FormattingVisitor): The visitor containing analysis data
 
         Returns:
-            float: Text formatting score (0-100)
+            float: Readability score (0-100)
         """
-        issues = []
-
-        class TextVisitor(ast.NodeVisitor):
-            def visit_Call(self, node):
-                if isinstance(node.func, ast.Attribute):
-                    # Check text-related parameters
-                    self._check_text_parameters(node, issues)
-                self.generic_visit(node)
-
-        visitor = TextVisitor()
-        visitor.visit(tree)
-
-        # Calculate score
-        if not issues:
-            return 100.0
+        if not visitor.format_calls.get('text', []):
+            return 50.0  # Basic score for no text formatting
             
-        score = max(0, 100 - (len(issues) * 10))
-        self.metrics['text_formatting'].extend(issues)
-        return score
+        # Score based on text formatting practices
+        text_issues = sum(1 for issue in visitor.issues if 'font' in issue.lower())
+        return max(0, 100 - (text_issues * 15))
 
-    def _analyze_layout_configuration(self, tree: ast.AST) -> float:
+    def _calculate_aesthetics_score(self, aesthetic_elements: Dict[str, List[Dict[str, Any]]]) -> float:
         """
-        Analyze layout and figure configuration.
+        Calculate score based on aesthetic elements.
 
         Args:
-            tree (ast.AST): AST of the code
+            aesthetic_elements (Dict[str, List[Dict[str, Any]]]): Dictionary of aesthetic elements
 
         Returns:
-            float: Layout configuration score (0-100)
+            float: Aesthetics score (0-100)
         """
-        issues = []
-
-        class LayoutVisitor(ast.NodeVisitor):
-            def visit_Call(self, node):
-                if isinstance(node.func, ast.Attribute):
-                    # Check layout parameters
-                    self._check_layout_parameters(node, issues)
-                self.generic_visit(node)
-
-        visitor = LayoutVisitor()
-        visitor.visit(tree)
-
-        # Calculate score
-        if not issues:
-            return 100.0
+        if not aesthetic_elements:
+            return 50.0  # Basic score for no aesthetic elements
             
-        score = max(0, 100 - (len(issues) * 15))
-        self.metrics['layout_config'].extend(issues)
-        return score
+        # Score based on aesthetic element variety
+        elements_used = len(aesthetic_elements)
+        return min(100, 50 + (elements_used * 10))
 
-    def _analyze_theme_consistency(self, tree: ast.AST) -> float:
+    def _calculate_consistency_score(self, visitor: FormattingVisitor) -> float:
         """
-        Analyze theme consistency across visualizations.
+        Calculate score based on style consistency.
 
         Args:
-            tree (ast.AST): AST of the code
+            visitor (FormattingVisitor): The visitor containing analysis data
 
         Returns:
-            float: Theme consistency score (0-100)
+            float: Consistency score (0-100)
         """
-        issues = []
-
-        class ThemeVisitor(ast.NodeVisitor):
-            def visit_Call(self, node):
-                if isinstance(node.func, ast.Attribute):
-                    # Track theme usage
-                    self._check_theme_usage(node)
-                self.generic_visit(node)
-
-        visitor = ThemeVisitor()
-        visitor.visit(tree)
-
-        # Check theme consistency
-        if len(self.theme_usage) > 1:
-            issues.append(f"Multiple themes detected: {', '.join(self.theme_usage.keys())}")
-
-        # Calculate score
-        if not issues:
-            return 100.0
+        if not visitor.style_settings:
+            return 50.0  # Basic score for no style settings
             
-        score = max(0, 100 - (len(issues) * 20))
-        self.metrics['theme_consistency'].extend(issues)
-        return score
+        # Deduct points for inconsistent styles
+        inconsistencies = len(visitor.style_settings) - 1  # More than one style change
+        return max(0, 100 - (inconsistencies * 20))
 
-    def _analyze_style_elements(self, tree: ast.AST) -> float:
-        """
-        Analyze style elements and aesthetics.
-
-        Args:
-            tree (ast.AST): AST of the code
-
-        Returns:
-            float: Style elements score (0-100)
-        """
-        issues = []
-
-        class StyleVisitor(ast.NodeVisitor):
-            def visit_Call(self, node):
-                if isinstance(node.func, ast.Attribute):
-                    # Check style elements
-                    self._check_style_elements(node, issues)
-                self.generic_visit(node)
-
-        visitor = StyleVisitor()
-        visitor.visit(tree)
-
-        # Calculate score
-        if not issues:
-            return 100.0
-            
-        score = max(0, 100 - (len(issues) * 10))
-        self.metrics['style_issues'].extend(issues)
-        return score
-
-    def _check_color_parameters(self, node: ast.Call, issues: List[str]) -> None:
-        """Check color-related parameters in visualization calls."""
-        for kw in node.keywords:
-            if kw.arg in {'color', 'palette', 'cmap'}:
-                if isinstance(kw.value, ast.Constant):
-                    palette_name = kw.value.value
-                    if isinstance(palette_name, str):
-                        if not self._is_valid_palette(palette_name):
-                            issues.append(f"Non-standard color palette: {palette_name}")
-
-    def _check_text_parameters(self, node: ast.Call, issues: List[str]) -> None:
-        """Check text-related parameters in visualization calls."""
-        has_title = False
-        has_labels = False
-        
-        for kw in node.keywords:
-            if kw.arg == 'title':
-                has_title = True
-            elif kw.arg in {'xlabel', 'ylabel'}:
-                has_labels = True
-            elif kw.arg == 'fontsize':
-                if isinstance(kw.value, ast.Constant):
-                    if kw.value.value < 8 or kw.value.value > 16:
-                        issues.append(f"Non-standard font size: {kw.value.value}")
-
-        if not has_title:
-            issues.append("Missing plot title")
-        if not has_labels:
-            issues.append("Missing axis labels")
-
-    def _check_layout_parameters(self, node: ast.Call, issues: List[str]) -> None:
-        """Check layout-related parameters in visualization calls."""
-        has_figsize = False
-        
-        for kw in node.keywords:
-            if kw.arg == 'figsize':
-                has_figsize = True
-                if isinstance(kw.value, ast.Tuple):
-                    size = tuple(elt.value for elt in kw.value.elts)
-                    if not self._is_recommended_size(size):
-                        issues.append(f"Non-standard figure size: {size}")
-
-        if not has_figsize:
-            issues.append("Figure size not specified")
-
-    def _check_theme_usage(self, node: ast.Call) -> None:
-        """Track theme usage in visualizations."""
-        for kw in node.keywords:
-            if kw.arg in {'style', 'theme'}:
-                if isinstance(kw.value, ast.Constant):
-                    self.theme_usage[str(kw.value.value)] += 1
-
-    def _check_style_elements(self, node: ast.Call, issues: List[str]) -> None:
-        """Check style elements in visualizations."""
-        has_grid = False
-        has_legend = False
-        
-        for kw in node.keywords:
-            if kw.arg == 'grid':
-                has_grid = True
-            elif kw.arg == 'legend':
-                has_legend = True
-                
-        if not has_grid:
-            issues.append("Consider adding grid for better readability")
-        if not has_legend and self._might_need_legend(node):
-            issues.append("Consider adding legend for clarity")
-
-    def _is_valid_palette(self, palette: str) -> bool:
-        """Check if color palette is in recommended set."""
-        return any(
-            palette in palettes
-            for palettes in self.COLOR_PALETTES.values()
-        )
-
-    def _is_recommended_size(self, size: Tuple[int, int]) -> bool:
-        """Check if figure size matches recommended sizes."""
-        return size in self.RECOMMENDED_FIGURE_SIZES.values()
-
-    def _might_need_legend(self, node: ast.Call) -> bool:
-        """Determine if visualization might need a legend."""
-        return any(
-            kw.arg in {'hue', 'color', 'groups', 'categories'}
-            for kw in node.keywords
-        )
-
-    def _calculate_overall_score(self, scores_and_weights: List[Tuple[float, float]]) -> float:
+    def _calculate_overall_score(self, scores_and_weights: List[tuple[float, float]]) -> float:
         """
         Calculate weighted average score.
 
@@ -412,200 +400,82 @@ class VisualizationFormattingAnalyzer(BaseAnalyzer):
             
         return round(total_score / total_weight if total_weight > 0 else 0, 2)
 
-    def _generate_findings(self) -> List[str]:
-        """Generate list of significant findings."""
+    def _generate_findings(self, visitor: FormattingVisitor) -> List[str]:
+        """
+        Generate list of findings from the analysis.
+
+        Args:
+            visitor (FormattingVisitor): The visitor containing analysis data
+
+        Returns:
+            List[str]: List of findings
+        """
         findings = []
         
-        # Add color usage findings
-        if self.metrics['color_usage']:
-            findings.extend(self.metrics['color_usage'][:2])
+        if visitor.format_calls:
+            findings.append(
+                f"Found {sum(len(calls) for calls in visitor.format_calls.values())} formatting calls"
+            )
             
-        # Add text formatting findings
-        if self.metrics['text_formatting']:
-            findings.extend(self.metrics['text_formatting'][:2])
+        if visitor.style_settings:
+            findings.append(
+                f"Found {len(visitor.style_settings)} style settings"
+            )
             
-        # Add layout findings
-        if self.metrics['layout_config']:
-            findings.extend(self.metrics['layout_config'][:2])
+        if visitor.aesthetic_elements:
+            findings.append(
+                f"Found {len(visitor.aesthetic_elements)} aesthetic elements"
+            )
             
         return findings
         
-    def _generate_suggestions(self) -> List[str]:
-        """Generate improvement suggestions based on findings."""
-        suggestions = []
-        
-        # Color usage suggestions
-        if self.metrics['color_usage']:
+    def _generate_suggestions(self, visitor: FormattingVisitor) -> List[str]:
+        """
+        Generate improvement suggestions.
+
+        Args:
+            visitor (FormattingVisitor): The visitor containing analysis data
+
+        Returns:
+            List[str]: List of improvement suggestions
+        """
+        suggestions = visitor.suggestions.copy()
+
+        if not visitor.format_calls:
             suggestions.append(
-                "Use consistent and colorblind-friendly palettes"
+                "Consider adding basic plot formatting (figure size, labels, etc.)"
             )
-            
-        # Text formatting suggestions
-        if self.metrics['text_formatting']:
+
+        if not visitor.aesthetic_elements.get('title', []):
             suggestions.append(
-                "Add clear titles and labels with appropriate font sizes"
+                "Add descriptive titles to plots"
             )
-            
-        # Layout suggestions
-        if self.metrics['layout_config']:
+
+        if not visitor.aesthetic_elements.get('labels', []):
             suggestions.append(
-                "Use standard figure sizes and proper layout configurations"
+                "Add axis labels to improve plot readability"
             )
-            
-        # Theme consistency suggestions
-        if len(self.theme_usage) > 1:
+
+        if not visitor.aesthetic_elements.get('legend', []):
             suggestions.append(
-                "Maintain consistent theme across all visualizations"
+                "Consider adding legends where appropriate"
             )
-            
-        # Style element suggestions
-        if self.metrics['style_issues']:
+
+        if not visitor.style_settings:
             suggestions.append(
-                "Add grids and legends where appropriate for better readability"
+                "Consider setting a consistent visualization style"
             )
-            
+
         return suggestions
-
-    def get_recommended_formatting(self, chart_type: str) -> Dict[str, Any]:
-        """
-        Get recommended formatting settings for a specific chart type.
-
-        Args:
-            chart_type (str): Type of chart ('scatter', 'line', 'bar', etc.)
-
-        Returns:
-            Dict[str, Any]: Recommended formatting settings
-        """
-        base_settings = {
-            'figsize': self.RECOMMENDED_FIGURE_SIZES['medium'],
-            'fontsize': self.TEXT_SIZES['title'],
-            'grid': True,
-            'legend_loc': 'best'
-        }
-
-        type_specific = {
-            'scatter': {
-                'alpha': 0.6,
-                'palette': 'viridis',
-                'marker_size': 60
-            },
-            'line': {
-                'linewidth': 2,
-                'palette': 'Set2',
-                'marker': 'o'
-            },
-            'bar': {
-                'palette': 'Dark2',
-                'alpha': 0.8,
-                'edgecolor': 'black'
-            },
-            'heatmap': {
-                'cmap': 'RdYlBu_r',
-                'annot': True,
-                'fmt': '.2f'
-            }
-        }
-
-        return {**base_settings, **type_specific.get(chart_type, {})}
-
-    def validate_formatting(self, node: ast.Call) -> List[str]:
-        """
-        Validate formatting settings against best practices.
-
-        Args:
-            node (ast.Call): AST node of visualization call
-
-        Returns:
-            List[str]: List of formatting violations
-        """
-        violations = []
-        
-        # Check text formatting
-        self._check_text_parameters(node, violations)
-        
-        # Check color usage
-        self._check_color_parameters(node, violations)
-        
-        # Check layout
-        self._check_layout_parameters(node, violations)
-        
-        # Check style elements
-        self._check_style_elements(node, violations)
-        
-        return violations
-
-    def suggest_improvements(self, node: ast.Call) -> Dict[str, Any]:
-        """
-        Suggest specific formatting improvements for a visualization.
-
-        Args:
-            node (ast.Call): AST node of visualization call
-
-        Returns:
-            Dict[str, Any]: Suggested improvements
-        """
-        improvements = {}
-        
-        # Check for missing essential parameters
-        for kw in node.keywords:
-            if kw.arg == 'figsize' and not self._is_recommended_size(
-                tuple(elt.value for elt in kw.value.elts)
-            ):
-                improvements['figsize'] = self.RECOMMENDED_FIGURE_SIZES['medium']
-                
-            if kw.arg == 'fontsize' and kw.value.value not in self.TEXT_SIZES.values():
-                improvements['fontsize'] = self.TEXT_SIZES['title']
-                
-        # Suggest color palette if needed
-        if not any(kw.arg in {'color', 'palette', 'cmap'} for kw in node.keywords):
-            improvements['palette'] = self.COLOR_PALETTES['colorblind_friendly'][0]
-            
-        return improvements
 
     def __str__(self) -> str:
         """Return string representation of the analyzer."""
         return (f"Visualization Formatting Analyzer "
-                f"(Style Issues: {len(self.metrics['style_issues'])})")
+                f"(Elements: {list(self.metrics['aesthetic_elements'].keys())})")
 
     def __repr__(self) -> str:
         """Return detailed string representation of the analyzer."""
-        return (f"{self.__class__.__name__}("
-                f"themes={len(self.theme_usage)}, "
-                f"style_counts={dict(self.style_counts)})")
-
-    def get_style_guide(self) -> Dict[str, Any]:
-        """
-        Get comprehensive style guide for visualizations.
-
-        Returns:
-            Dict[str, Any]: Style guide including recommended settings
-        """
-        return {
-            'figure_sizes': self.RECOMMENDED_FIGURE_SIZES,
-            'color_palettes': self.COLOR_PALETTES,
-            'text_sizes': self.TEXT_SIZES,
-            'best_practices': {
-                'titles': 'Use clear, descriptive titles',
-                'labels': 'Label all axes with units',
-                'colors': 'Use colorblind-friendly palettes',
-                'text': 'Maintain consistent font sizes',
-                'layout': 'Use appropriate figure sizes',
-                'grid': 'Add grid lines for readability',
-                'legend': 'Include legends for multiple series'
-            }
-        }
-
-    def get_theme_recommendations(self) -> Dict[str, List[str]]:
-        """
-        Get theme recommendations for different visualization contexts.
-
-        Returns:
-            Dict[str, List[str]]: Theme recommendations by context
-        """
-        return {
-            'presentation': ['default', 'seaborn-talk', 'seaborn-poster'],
-            'publication': ['seaborn-paper', 'grayscale', 'seaborn-deep'],
-            'web': ['seaborn-whitegrid', 'seaborn-darkgrid'],
-            'dashboard': ['plotly', 'seaborn-white'],
-            'dark_mode': ['dark_background', 'seaborn-dark']
-        }
+        return (f"VisualizationFormattingAnalyzer("
+                f"format_calls={dict(self.metrics['format_calls'])}, "
+                f"style_settings={dict(self.metrics['style_settings'])}, "
+                f"aesthetic_elements={dict(self.metrics['aesthetic_elements'])})")

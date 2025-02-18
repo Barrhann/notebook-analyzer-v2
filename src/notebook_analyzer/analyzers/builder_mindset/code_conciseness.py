@@ -1,41 +1,208 @@
 """
 Code Conciseness Analyzer Module.
 
-This module analyzes the conciseness and clarity of code in Jupyter notebook cells.
-It evaluates code complexity, redundancy, and efficiency of expression.
+This module analyzes code conciseness in Jupyter notebook cells.
+It evaluates code length, complexity, and identifies opportunities for more concise expressions.
 
 Created by: Barrhann
-Date: 2025-02-17
-Last Updated: 2025-02-17 00:35:11
+Created on: 2025-02-17
+Last Updated: 2025-02-17 23:49:18
 """
 
 import ast
-from typing import Dict, Any, List, Tuple, Set
+from typing import Dict, Any, List, Set, Optional
 from collections import defaultdict
-import re
 from ..base_analyzer import BaseAnalyzer, AnalysisError
+
+
+class ConcisenessMeasures:
+    """Constants for code conciseness analysis."""
+    
+    # Length thresholds
+    MAX_LINE_LENGTH = 79  # PEP 8 recommendation
+    MAX_FUNCTION_LENGTH = 50  # lines
+    MAX_CLASS_LENGTH = 100  # lines
+    
+    # Complexity thresholds
+    MAX_LOOP_NESTING = 3
+    MAX_IF_NESTING = 3
+    MAX_LIST_COMPREHENSION_LENGTH = 50  # characters
+    
+    # Pattern weights for scoring
+    PATTERN_WEIGHTS = {
+        'long_lines': 0.3,
+        'nested_structures': 0.25,
+        'repeated_code': 0.25,
+        'comprehension_usage': 0.2
+    }
+
+
+class ConcisenessVisitor(ast.NodeVisitor):
+    """Visitor for analyzing code conciseness."""
+
+    def __init__(self):
+        """Initialize the conciseness visitor."""
+        self.metrics = defaultdict(list)
+        self.issues = []
+        self.suggestions = []
+        self.current_nesting = 0
+        self.line_lengths = []
+        self.comprehensions = []
+        self.repeated_patterns = defaultdict(int)
+
+    def visit_FunctionDef(self, node: ast.FunctionDef):
+        """
+        Visit function definition nodes.
+
+        Args:
+            node (ast.FunctionDef): The function definition node
+        """
+        lines = len(node.body)
+        if lines > ConcisenessMeasures.MAX_FUNCTION_LENGTH:
+            self.issues.append(
+                f"Function '{node.name}' is too long ({lines} lines)"
+            )
+            self.suggestions.append(
+                f"Consider breaking '{node.name}' into smaller functions"
+            )
+        self.generic_visit(node)
+
+    def visit_ClassDef(self, node: ast.ClassDef):
+        """
+        Visit class definition nodes.
+
+        Args:
+            node (ast.ClassDef): The class definition node
+        """
+        lines = sum(len(n.body) if hasattr(n, 'body') else 1 for n in node.body)
+        if lines > ConcisenessMeasures.MAX_CLASS_LENGTH:
+            self.issues.append(
+                f"Class '{node.name}' is too long ({lines} lines)"
+            )
+            self.suggestions.append(
+                f"Consider splitting '{node.name}' into smaller classes"
+            )
+        self.generic_visit(node)
+
+    def visit_For(self, node: ast.For):
+        """
+        Visit for loop nodes.
+
+        Args:
+            node (ast.For): The for loop node
+        """
+        self.current_nesting += 1
+        if self.current_nesting > ConcisenessMeasures.MAX_LOOP_NESTING:
+            self.issues.append(
+                f"Deeply nested loop detected (depth: {self.current_nesting})"
+            )
+            self.suggestions.append(
+                "Consider restructuring deeply nested loops using functions or comprehensions"
+            )
+        self.generic_visit(node)
+        self.current_nesting -= 1
+
+    def visit_If(self, node: ast.If):
+        """
+        Visit if statement nodes.
+
+        Args:
+            node (ast.If): The if statement node
+        """
+        self.current_nesting += 1
+        if self.current_nesting > ConcisenessMeasures.MAX_IF_NESTING:
+            self.issues.append(
+                f"Deeply nested conditional detected (depth: {self.current_nesting})"
+            )
+            self.suggestions.append(
+                "Consider simplifying nested conditionals using early returns or guard clauses"
+            )
+        self.generic_visit(node)
+        self.current_nesting -= 1
+
+    def visit_ListComp(self, node: ast.ListComp):
+        """
+        Visit list comprehension nodes.
+
+        Args:
+            node (ast.ListComp): The list comprehension node
+        """
+        self._analyze_comprehension(node, 'list')
+        self.generic_visit(node)
+
+    def visit_SetComp(self, node: ast.SetComp):
+        """
+        Visit set comprehension nodes.
+
+        Args:
+            node (ast.SetComp): The set comprehension node
+        """
+        self._analyze_comprehension(node, 'set')
+        self.generic_visit(node)
+
+    def visit_DictComp(self, node: ast.DictComp):
+        """
+        Visit dictionary comprehension nodes.
+
+        Args:
+            node (ast.DictComp): The dictionary comprehension node
+        """
+        self._analyze_comprehension(node, 'dict')
+        self.generic_visit(node)
+
+    def _analyze_comprehension(self, node: ast.AST, comp_type: str):
+        """
+        Analyze a comprehension node.
+
+        Args:
+            node (ast.AST): The comprehension node
+            comp_type (str): Type of comprehension ('list', 'set', or 'dict')
+        """
+        source_length = len(ast.dump(node))
+        if source_length > ConcisenessMeasures.MAX_LIST_COMPREHENSION_LENGTH:
+            self.issues.append(
+                f"Complex {comp_type} comprehension detected"
+            )
+            self.suggestions.append(
+                f"Consider breaking down the {comp_type} comprehension into multiple steps"
+            )
+        self.comprehensions.append({
+            'type': comp_type,
+            'length': source_length,
+            'line': getattr(node, 'lineno', 0)
+        })
+
+    def analyze_line_lengths(self, code: str):
+        """
+        Analyze line lengths in the code.
+
+        Args:
+            code (str): The code to analyze
+        """
+        for i, line in enumerate(code.splitlines(), 1):
+            length = len(line)
+            if length > ConcisenessMeasures.MAX_LINE_LENGTH:
+                self.issues.append(
+                    f"Line {i} is too long ({length} characters)"
+                )
+                self.suggestions.append(
+                    f"Consider breaking line {i} into multiple lines"
+                )
+            self.line_lengths.append(length)
+
 
 class CodeConcisenessAnalyzer(BaseAnalyzer):
     """
-    Analyzer for code conciseness and clarity metrics.
+    Analyzer for code conciseness.
     
     This analyzer evaluates:
-    - Code complexity and length
-    - Variable reuse and scope
-    - Redundant operations
-    - Expression efficiency
-    - List/dict comprehension usage
-    - Loop efficiency
-    
-    Attributes:
-        MAX_LINE_LENGTH (int): Maximum recommended line length
-        MAX_FUNCTION_LENGTH (int): Maximum recommended function length
-        MAX_NESTED_DEPTH (int): Maximum recommended nesting depth
+    - Code length and complexity
+    - Line lengths
+    - Nesting depth
+    - Use of comprehensions
+    - Code repetition
+    - Opportunities for more concise expressions
     """
-
-    MAX_LINE_LENGTH = 79
-    MAX_FUNCTION_LENGTH = 50
-    MAX_NESTED_DEPTH = 3
 
     def __init__(self):
         """Initialize the code conciseness analyzer."""
@@ -45,11 +212,11 @@ class CodeConcisenessAnalyzer(BaseAnalyzer):
     def _reset_metrics(self) -> None:
         """Reset all metrics for a new analysis."""
         self.metrics = {
-            'complexity_issues': [],
-            'redundancy_issues': [],
-            'comprehension_opportunities': [],
-            'loop_efficiency': [],
-            'variable_reuse': []
+            'line_lengths': [],
+            'nesting_depths': [],
+            'comprehensions': [],
+            'issues': [],
+            'suggestions': []
         }
 
     def get_metric_type(self) -> str:
@@ -58,7 +225,7 @@ class CodeConcisenessAnalyzer(BaseAnalyzer):
 
     def analyze(self, code: str) -> Dict[str, Any]:
         """
-        Analyze code conciseness and clarity.
+        Analyze code conciseness.
 
         Args:
             code (str): The code to analyze
@@ -84,35 +251,41 @@ class CodeConcisenessAnalyzer(BaseAnalyzer):
             except SyntaxError as e:
                 raise AnalysisError(f"Syntax error in code: {str(e)}")
 
-            # Perform various conciseness checks
-            complexity_score = self._analyze_complexity(tree)
-            redundancy_score = self._analyze_redundancy(tree)
-            comprehension_score = self._analyze_comprehension_usage(tree)
-            loop_score = self._analyze_loop_efficiency(tree)
-            variable_score = self._analyze_variable_usage(tree)
+            # Analyze code structure
+            visitor = ConcisenessVisitor()
+            visitor.visit(tree)
+            visitor.analyze_line_lengths(code)
+
+            # Calculate component scores
+            line_score = self._calculate_line_score(visitor.line_lengths)
+            nesting_score = self._calculate_nesting_score(visitor.current_nesting)
+            comprehension_score = self._calculate_comprehension_score(visitor.comprehensions)
+            repetition_score = self._calculate_repetition_score(visitor.repeated_patterns)
 
             # Calculate overall score
             overall_score = self._calculate_overall_score([
-                (complexity_score, 0.30),    # 30% weight
-                (redundancy_score, 0.25),    # 25% weight
-                (comprehension_score, 0.20), # 20% weight
-                (loop_score, 0.15),         # 15% weight
-                (variable_score, 0.10)      # 10% weight
+                (line_score, ConcisenessMeasures.PATTERN_WEIGHTS['long_lines']),
+                (nesting_score, ConcisenessMeasures.PATTERN_WEIGHTS['nested_structures']),
+                (repetition_score, ConcisenessMeasures.PATTERN_WEIGHTS['repeated_code']),
+                (comprehension_score, ConcisenessMeasures.PATTERN_WEIGHTS['comprehension_usage'])
             ])
 
             # Prepare results
             results = {
                 'score': overall_score,
-                'findings': self._generate_findings(),
+                'findings': visitor.issues,
                 'details': {
-                    'complexity_score': complexity_score,
-                    'redundancy_score': redundancy_score,
+                    'line_score': line_score,
+                    'nesting_score': nesting_score,
                     'comprehension_score': comprehension_score,
-                    'loop_efficiency_score': loop_score,
-                    'variable_usage_score': variable_score,
-                    'metrics': self.metrics
+                    'repetition_score': repetition_score,
+                    'metrics': {
+                        'line_lengths': visitor.line_lengths,
+                        'comprehensions': visitor.comprehensions,
+                        'repeated_patterns': dict(visitor.repeated_patterns)
+                    }
                 },
-                'suggestions': self._generate_suggestions()
+                'suggestions': self._generate_suggestions(visitor)
             }
 
             if not self.validate_results(results):
@@ -123,211 +296,73 @@ class CodeConcisenessAnalyzer(BaseAnalyzer):
         except Exception as e:
             raise AnalysisError(f"Error analyzing code conciseness: {str(e)}")
 
-    def _analyze_complexity(self, tree: ast.AST) -> float:
+    def _calculate_line_score(self, line_lengths: List[int]) -> float:
         """
-        Analyze code complexity and nesting.
+        Calculate score based on line lengths.
 
         Args:
-            tree (ast.AST): AST of the code
+            line_lengths (List[int]): List of line lengths
 
         Returns:
-            float: Complexity score (0-100)
+            float: Line length score (0-100)
         """
-        issues = []
-        max_depth = 0
-        current_depth = 0
-
-        class DepthVisitor(ast.NodeVisitor):
-            def visit_ClassDef(self, node):
-                nonlocal current_depth, max_depth
-                current_depth += 1
-                max_depth = max(max_depth, current_depth)
-                self.generic_visit(node)
-                current_depth -= 1
-
-            def visit_FunctionDef(self, node):
-                nonlocal current_depth, max_depth
-                current_depth += 1
-                max_depth = max(max_depth, current_depth)
-                
-                # Check function length
-                if len(node.body) > self.MAX_FUNCTION_LENGTH:
-                    issues.append(f"Function '{node.name}' is too long ({len(node.body)} lines)")
-                
-                self.generic_visit(node)
-                current_depth -= 1
-
-            visit_If = visit_For = visit_While = visit_With = visit_Try = visit_ClassDef
-
-        visitor = DepthVisitor()
-        visitor.visit(tree)
-
-        if max_depth > self.MAX_NESTED_DEPTH:
-            issues.append(f"Maximum nesting depth of {max_depth} exceeds limit of {self.MAX_NESTED_DEPTH}")
-
-        # Calculate score
-        if not issues:
+        if not line_lengths:
             return 100.0
             
-        score = max(0, 100 - (len(issues) * 10))
-        self.metrics['complexity_issues'].extend(issues)
-        return score
+        long_lines = sum(1 for length in line_lengths
+                        if length > ConcisenessMeasures.MAX_LINE_LENGTH)
+        return max(0, 100 - (long_lines * 5))
 
-    def _analyze_redundancy(self, tree: ast.AST) -> float:
+    def _calculate_nesting_score(self, max_nesting: int) -> float:
         """
-        Analyze code for redundant operations.
+        Calculate score based on nesting depth.
 
         Args:
-            tree (ast.AST): AST of the code
+            max_nesting (int): Maximum nesting depth found
 
         Returns:
-            float: Redundancy score (0-100)
+            float: Nesting score (0-100)
         """
-        issues = []
-        operations = defaultdict(int)
-
-        class RedundancyVisitor(ast.NodeVisitor):
-            def visit_Call(self, node):
-                # Track function calls
-                if isinstance(node.func, ast.Name):
-                    operations[f"call_{node.func.id}"] += 1
-                self.generic_visit(node)
-
-            def visit_BinOp(self, node):
-                # Track binary operations
-                op_type = type(node.op).__name__
-                operations[f"binop_{op_type}"] += 1
-                self.generic_visit(node)
-
-        visitor = RedundancyVisitor()
-        visitor.visit(tree)
-
-        # Check for redundant operations
-        for op, count in operations.items():
-            if count > 3:
-                issues.append(f"Operation {op} used {count} times - consider refactoring")
-
-        # Calculate score
-        if not issues:
+        if max_nesting <= ConcisenessMeasures.MAX_IF_NESTING:
             return 100.0
-            
-        score = max(0, 100 - (len(issues) * 5))
-        self.metrics['redundancy_issues'].extend(issues)
-        return score
+        return max(0, 100 - ((max_nesting - ConcisenessMeasures.MAX_IF_NESTING) * 15))
 
-    def _analyze_comprehension_usage(self, tree: ast.AST) -> float:
+    def _calculate_comprehension_score(self, comprehensions: List[Dict[str, Any]]) -> float:
         """
-        Analyze usage of list/dict comprehensions.
+        Calculate score based on comprehension usage.
 
         Args:
-            tree (ast.AST): AST of the code
+            comprehensions (List[Dict[str, Any]]): List of comprehension metrics
 
         Returns:
-            float: Comprehension usage score (0-100)
+            float: Comprehension score (0-100)
         """
-        opportunities = []
-        comprehension_count = 0
-
-        class ComprehensionVisitor(ast.NodeVisitor):
-            def visit_ListComp(self, node):
-                nonlocal comprehension_count
-                comprehension_count += 1
-                self.generic_visit(node)
-
-            def visit_For(self, node):
-                # Check if for loop could be a comprehension
-                if isinstance(node.body, list) and len(node.body) == 1:
-                    if isinstance(node.body[0], (ast.Append, ast.Assign)):
-                        opportunities.append(
-                            f"Loop at line {node.lineno} could be a list comprehension"
-                        )
-                self.generic_visit(node)
-
-        visitor = ComprehensionVisitor()
-        visitor.visit(tree)
-
-        # Calculate score based on opportunities taken vs. missed
-        total = comprehension_count + len(opportunities)
-        if total == 0:
+        if not comprehensions:
             return 100.0
             
-        score = (comprehension_count / total) * 100 if total > 0 else 100
-        self.metrics['comprehension_opportunities'].extend(opportunities)
-        return score
+        complex_comprehensions = sum(
+            1 for comp in comprehensions
+            if comp['length'] > ConcisenessMeasures.MAX_LIST_COMPREHENSION_LENGTH
+        )
+        return max(0, 100 - (complex_comprehensions * 10))
 
-    def _analyze_loop_efficiency(self, tree: ast.AST) -> float:
+    def _calculate_repetition_score(self, patterns: Dict[str, int]) -> float:
         """
-        Analyze loop efficiency.
+        Calculate score based on code repetition.
 
         Args:
-            tree (ast.AST): AST of the code
+            patterns (Dict[str, int]): Dictionary of repeated patterns
 
         Returns:
-            float: Loop efficiency score (0-100)
+            float: Repetition score (0-100)
         """
-        issues = []
-
-        class LoopVisitor(ast.NodeVisitor):
-            def visit_For(self, node):
-                # Check for inefficient list operations in loops
-                if isinstance(node.iter, ast.Call):
-                    if isinstance(node.iter.func, ast.Name):
-                        if node.iter.func.id == 'range' and len(node.iter.args) == 1:
-                            if isinstance(node.iter.args[0], ast.Call):
-                                if isinstance(node.iter.args[0].func, ast.Name):
-                                    if node.iter.args[0].func.id == 'len':
-                                        issues.append(
-                                            f"Use enumerate() instead of range(len()) at line {node.lineno}"
-                                        )
-                self.generic_visit(node)
-
-        visitor = LoopVisitor()
-        visitor.visit(tree)
-
-        # Calculate score
-        if not issues:
+        if not patterns:
             return 100.0
             
-        score = max(0, 100 - (len(issues) * 10))
-        self.metrics['loop_efficiency'].extend(issues)
-        return score
+        repetition_penalty = sum(count - 1 for count in patterns.values() if count > 1)
+        return max(0, 100 - (repetition_penalty * 5))
 
-    def _analyze_variable_usage(self, tree: ast.AST) -> float:
-        """
-        Analyze variable usage efficiency.
-
-        Args:
-            tree (ast.AST): AST of the code
-
-        Returns:
-            float: Variable usage score (0-100)
-        """
-        issues = []
-        variables = defaultdict(int)
-
-        class VariableVisitor(ast.NodeVisitor):
-            def visit_Name(self, node):
-                if isinstance(node.ctx, ast.Store):
-                    variables[node.id] += 1
-                self.generic_visit(node)
-
-        visitor = VariableVisitor()
-        visitor.visit(tree)
-
-        # Check for single-use variables
-        for var, count in variables.items():
-            if count == 1 and not var.startswith('_'):
-                issues.append(f"Variable '{var}' is only used once")
-
-        # Calculate score
-        if not issues:
-            return 100.0
-            
-        score = max(0, 100 - (len(issues) * 5))
-        self.metrics['variable_reuse'].extend(issues)
-        return score
-
-    def _calculate_overall_score(self, scores_and_weights: List[Tuple[float, float]]) -> float:
+    def _calculate_overall_score(self, scores_and_weights: List[tuple[float, float]]) -> float:
         """
         Calculate weighted average score.
 
@@ -346,53 +381,42 @@ class CodeConcisenessAnalyzer(BaseAnalyzer):
             
         return round(total_score / total_weight if total_weight > 0 else 0, 2)
 
-    def _generate_findings(self) -> List[str]:
-        """Generate list of significant findings."""
-        findings = []
-        
-        # Add significant complexity issues
-        if self.metrics['complexity_issues']:
-            findings.extend(self.metrics['complexity_issues'][:3])
-            
-        # Add significant redundancy issues
-        if self.metrics['redundancy_issues']:
-            findings.extend(self.metrics['redundancy_issues'][:3])
-            
-        # Add comprehension opportunities
-        if self.metrics['comprehension_opportunities']:
-            findings.extend(self.metrics['comprehension_opportunities'][:2])
-            
-        return findings
+    def _generate_suggestions(self, visitor: ConcisenessVisitor) -> List[str]:
+        """
+        Generate improvement suggestions.
 
-    def _generate_suggestions(self) -> List[str]:
-        """Generate improvement suggestions based on findings."""
-        suggestions = []
-        
-        # Complexity suggestions
-        if self.metrics['complexity_issues']:
+        Args:
+            visitor (ConcisenessVisitor): The visitor containing analysis data
+
+        Returns:
+            List[str]: List of improvement suggestions
+        """
+        suggestions = visitor.suggestions.copy()
+
+        # Add general suggestions
+        if visitor.line_lengths:
+            avg_length = sum(visitor.line_lengths) / len(visitor.line_lengths)
+            if avg_length > ConcisenessMeasures.MAX_LINE_LENGTH * 0.8:
+                suggestions.append(
+                    "Consider using shorter, more focused lines of code"
+                )
+
+        if visitor.current_nesting > ConcisenessMeasures.MAX_IF_NESTING - 1:
             suggestions.append(
-                f"Reduce nesting depth to maximum of {self.MAX_NESTED_DEPTH} levels"
+                "Consider extracting nested logic into separate functions"
             )
+
+        if not visitor.comprehensions:
             suggestions.append(
-                f"Keep functions under {self.MAX_FUNCTION_LENGTH} lines"
+                "Consider using list/dict comprehensions for simple iterations"
             )
-            
-        # Redundancy suggestions
-        if self.metrics['redundancy_issues']:
-            suggestions.append(
-                "Extract repeated operations into helper functions"
-            )
-            
-        # Comprehension suggestions
-        if self.metrics['comprehension_opportunities']:
-            suggestions.append(
-                "Consider using list comprehensions for simple loops"
-            )
-            
-        # Loop suggestions
-        if self.metrics['loop_efficiency']:
-            suggestions.append(
-                "Use enumerate() instead of range(len()) for index-based iteration"
-            )
-            
+
         return suggestions
+
+    def __str__(self) -> str:
+        """Return string representation of the analyzer."""
+        return f"Code Conciseness Analyzer"
+
+    def __repr__(self) -> str:
+        """Return detailed string representation of the analyzer."""
+        return f"CodeConcisenessAnalyzer(metrics={self.metrics})"

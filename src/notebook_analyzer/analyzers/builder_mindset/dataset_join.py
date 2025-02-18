@@ -1,48 +1,210 @@
 """
 Dataset Join Analyzer Module.
 
-This module analyzes the data joining operations in Jupyter notebook cells.
-It evaluates pandas and SQL join operations, merge patterns, and data combination efficiency.
+This module analyzes data joining operations in Jupyter notebooks.
+It evaluates join patterns, efficiency, and best practices in data merging.
 
 Created by: Barrhann
-Date: 2025-02-17
-Last Updated: 2025-02-17 00:41:07
+Created on: 2025-02-17
+Last Updated: 2025-02-17 23:45:59
 """
 
 import ast
-from typing import Dict, Any, List, Tuple, Set
+from typing import Dict, Any, List, Set, Optional
 from collections import defaultdict
-import re
 from ..base_analyzer import BaseAnalyzer, AnalysisError
+
+
+class JoinVisitor(ast.NodeVisitor):
+    """Visitor for analyzing join operations."""
+
+    PANDAS_JOIN_METHODS = {
+        'merge', 'join', 'concat', 'append'
+    }
+
+    PANDAS_ALIASES = {
+        'pandas', 'pd'
+    }
+
+    JOIN_TYPE_WEIGHTS = {
+        'inner': 1.0,
+        'outer': 0.8,
+        'left': 0.9,
+        'right': 0.9,
+        'cross': 0.6
+    }
+
+    def __init__(self):
+        """Initialize the join visitor."""
+        self.join_operations = []
+        self.import_aliases = {}
+        self.issues = []
+        self.suggestions = []
+        self.join_count = 0
+
+    def visit_Import(self, node: ast.Import):
+        """
+        Visit import nodes to track pandas aliases.
+
+        Args:
+            node (ast.Import): The import node to visit
+        """
+        for name in node.names:
+            if name.name == 'pandas':
+                self.import_aliases[name.asname or name.name] = 'pandas'
+        self.generic_visit(node)
+
+    def visit_ImportFrom(self, node: ast.ImportFrom):
+        """
+        Visit import from nodes to track pandas aliases.
+
+        Args:
+            node (ast.ImportFrom): The import from node to visit
+        """
+        if node.module == 'pandas':
+            for name in node.names:
+                self.import_aliases[name.asname or name.name] = 'pandas'
+        self.generic_visit(node)
+
+    def visit_Call(self, node: ast.Call):
+        """
+        Visit call nodes to analyze join operations.
+
+        Args:
+            node (ast.Call): The call node to visit
+        """
+        if isinstance(node.func, ast.Attribute):
+            method_name = node.func.attr
+            if method_name in self.PANDAS_JOIN_METHODS:
+                self.join_count += 1
+                base_obj = self._get_base_object(node.func.value)
+                
+                join_info = {
+                    'method': method_name,
+                    'line_no': getattr(node, 'lineno', 0),
+                    'args': len(node.args),
+                    'kwargs': {k.arg: self._extract_value(k.value) for k in node.keywords},
+                    'base_obj': base_obj
+                }
+                
+                self._analyze_join_operation(join_info, node)
+                self.join_operations.append(join_info)
+                
+        self.generic_visit(node)
+
+    def _get_base_object(self, node: ast.AST) -> str:
+        """
+        Get the base object name from an AST node.
+
+        Args:
+            node (ast.AST): The AST node
+
+        Returns:
+            str: Base object name
+        """
+        if isinstance(node, ast.Name):
+            return node.id
+        elif isinstance(node, ast.Attribute):
+            return self._get_base_object(node.value)
+        return ""
+
+    def _extract_value(self, node: ast.AST) -> Any:
+        """
+        Extract value from an AST node.
+
+        Args:
+            node (ast.AST): The AST node
+
+        Returns:
+            Any: Extracted value
+        """
+        if isinstance(node, ast.Str):
+            return node.s
+        elif isinstance(node, ast.Num):
+            return node.n
+        elif isinstance(node, ast.List):
+            return [self._extract_value(elt) for elt in node.elts]
+        elif isinstance(node, ast.Name):
+            return node.id
+        return None
+
+    def _analyze_join_operation(self, join_info: Dict[str, Any], node: ast.Call):
+        """
+        Analyze a join operation for potential issues.
+
+        Args:
+            join_info (Dict[str, Any]): Information about the join
+            node (ast.Call): The join operation node
+        """
+        method = join_info['method']
+        kwargs = join_info['kwargs']
+        line_no = join_info['line_no']
+
+        if method == 'merge':
+            # Check join type
+            join_type = kwargs.get('how', 'inner')
+            if join_type == 'cross':
+                self.issues.append(
+                    f"Line {line_no}: Cross join detected - consider using a more specific join type"
+                )
+
+            # Check join keys
+            if not any(key in kwargs for key in ['on', 'left_on', 'right_on']):
+                self.issues.append(
+                    f"Line {line_no}: Join columns not explicitly specified"
+                )
+
+            # Check for sorted data with multiple keys
+            if self._has_multiple_keys(kwargs) and not kwargs.get('sort', False):
+                self.suggestions.append(
+                    f"Line {line_no}: Consider sorting data before joining on multiple keys"
+                )
+
+        elif method == 'concat':
+            if 'axis' not in kwargs:
+                self.suggestions.append(
+                    f"Line {line_no}: Consider specifying 'axis' parameter in concat operation"
+                )
+
+        elif method == 'append':
+            self.suggestions.append(
+                f"Line {line_no}: 'append' is deprecated, consider using 'concat' instead"
+            )
+
+    def _has_multiple_keys(self, kwargs: Dict[str, Any]) -> bool:
+        """
+        Check if join uses multiple keys.
+
+        Args:
+            kwargs (Dict[str, Any]): Join operation keyword arguments
+
+        Returns:
+            bool: True if multiple keys are used
+        """
+        on_keys = kwargs.get('on', [])
+        if isinstance(on_keys, list):
+            return len(on_keys) > 1
+        return False
+
 
 class DatasetJoinAnalyzer(BaseAnalyzer):
     """
-    Analyzer for dataset joining operations and patterns.
+    Analyzer for dataset join operations.
     
     This analyzer evaluates:
-    - Pandas merge and join operations
-    - SQL join patterns
-    - Data concatenation methods
-    - Memory efficiency in joins
-    - Join key selection
+    - Join methods and patterns
+    - Join efficiency
+    - Join column specifications
+    - Join type selections
+    - Data concatenation patterns
     
     Attributes:
-        PANDAS_JOIN_METHODS (Set[str]): Valid pandas join/merge methods
-        SQL_JOIN_TYPES (Set[str]): Valid SQL join types
-        MAX_JOIN_CHAIN (int): Maximum recommended chain of joins
+        MAX_JOINS_PER_CELL (int): Maximum recommended joins per cell
+        MIN_JOIN_SCORE (float): Minimum acceptable join score
     """
 
-    PANDAS_JOIN_METHODS = {
-        'merge', 'join', 'concat', 'append',
-        'combine_first', 'combine', 'update'
-    }
-    
-    SQL_JOIN_TYPES = {
-        'inner join', 'left join', 'right join', 'outer join',
-        'full join', 'cross join', 'left outer join', 'right outer join'
-    }
-    
-    MAX_JOIN_CHAIN = 3
+    MAX_JOINS_PER_CELL = 3
+    MIN_JOIN_SCORE = 70.0
 
     def __init__(self):
         """Initialize the dataset join analyzer."""
@@ -53,13 +215,11 @@ class DatasetJoinAnalyzer(BaseAnalyzer):
         """Reset all metrics for a new analysis."""
         self.metrics = {
             'join_operations': [],
-            'join_efficiency': [],
-            'memory_usage': [],
-            'key_selection': [],
-            'join_chains': []
+            'issues': [],
+            'suggestions': [],
+            'join_types': defaultdict(int),
+            'join_methods': defaultdict(int)
         }
-        self.join_count = 0
-        self.join_chains = []
 
     def get_metric_type(self) -> str:
         """Get the type of metric this analyzer produces."""
@@ -67,14 +227,14 @@ class DatasetJoinAnalyzer(BaseAnalyzer):
 
     def analyze(self, code: str) -> Dict[str, Any]:
         """
-        Analyze dataset joining operations.
+        Analyze dataset join operations.
 
         Args:
             code (str): The code to analyze
 
         Returns:
             Dict[str, Any]: Analysis results containing:
-                - score: Overall join operations score (0-100)
+                - score: Overall join pattern score (0-100)
                 - findings: List of specific findings
                 - details: Detailed metrics and issues found
                 - suggestions: Improvement suggestions
@@ -93,39 +253,38 @@ class DatasetJoinAnalyzer(BaseAnalyzer):
             except SyntaxError as e:
                 raise AnalysisError(f"Syntax error in code: {str(e)}")
 
-            # Perform various join analysis checks
-            pandas_score = self._analyze_pandas_joins(tree)
-            sql_score = self._analyze_sql_joins(code)
-            efficiency_score = self._analyze_join_efficiency(tree)
-            memory_score = self._analyze_memory_usage(tree)
-            key_score = self._analyze_key_selection(tree)
+            # Analyze join patterns
+            visitor = JoinVisitor()
+            visitor.visit(tree)
 
-            # Calculate overall score
-            overall_score = self._calculate_overall_score([
-                (pandas_score, 0.30),    # 30% weight
-                (sql_score, 0.25),       # 25% weight
-                (efficiency_score, 0.20), # 20% weight
-                (memory_score, 0.15),    # 15% weight
-                (key_score, 0.10)        # 10% weight
-            ])
+            # Process results
+            join_count = visitor.join_count
+            self.metrics['issues'] = visitor.issues
+            self.metrics['suggestions'] = visitor.suggestions
+
+            # Analyze join operations
+            for join_op in visitor.join_operations:
+                method = join_op['method']
+                self.metrics['join_methods'][method] += 1
+
+                if method == 'merge':
+                    join_type = join_op['kwargs'].get('how', 'inner')
+                    self.metrics['join_types'][join_type] += 1
+
+            # Calculate score
+            score = self._calculate_score(visitor)
 
             # Prepare results
             results = {
-                'score': overall_score,
-                'findings': self._generate_findings(),
+                'score': score,
+                'findings': visitor.issues,
                 'details': {
-                    'pandas_joins_score': pandas_score,
-                    'sql_joins_score': sql_score,
-                    'join_efficiency_score': efficiency_score,
-                    'memory_usage_score': memory_score,
-                    'key_selection_score': key_score,
-                    'metrics': self.metrics,
-                    'stats': {
-                        'join_count': self.join_count,
-                        'join_chains': len(self.join_chains)
-                    }
+                    'join_count': join_count,
+                    'join_types': dict(self.metrics['join_types']),
+                    'join_methods': dict(self.metrics['join_methods']),
+                    'operations': visitor.join_operations
                 },
-                'suggestions': self._generate_suggestions()
+                'suggestions': self._generate_suggestions(visitor)
             }
 
             if not self.validate_results(results):
@@ -136,297 +295,71 @@ class DatasetJoinAnalyzer(BaseAnalyzer):
         except Exception as e:
             raise AnalysisError(f"Error analyzing dataset joins: {str(e)}")
 
-    def _analyze_pandas_joins(self, tree: ast.AST) -> float:
+    def _calculate_score(self, visitor: JoinVisitor) -> float:
         """
-        Analyze Pandas join operations.
+        Calculate the overall score for join operations.
 
         Args:
-            tree (ast.AST): AST of the code
+            visitor (JoinVisitor): The visitor containing analysis data
 
         Returns:
-            float: Pandas joins score (0-100)
+            float: Overall score (0-100)
         """
-        issues = []
-        current_chain = []
-
-        class PandasJoinVisitor(ast.NodeVisitor):
-            def visit_Call(self, node):
-                if isinstance(node.func, ast.Attribute):
-                    method_name = node.func.attr
-                    if method_name in self.PANDAS_JOIN_METHODS:
-                        self.join_count += 1
-                        current_chain.append(method_name)
-                        
-                        # Check join method arguments
-                        if method_name == 'merge':
-                            self._check_merge_args(node, issues)
-                        elif method_name == 'join':
-                            self._check_join_args(node, issues)
-                            
-                self.generic_visit(node)
-
-        visitor = PandasJoinVisitor()
-        visitor.visit(tree)
-
-        # Check join chain length
-        if len(current_chain) > self.MAX_JOIN_CHAIN:
-            issues.append(
-                f"Chain of {len(current_chain)} joins might be inefficient"
-            )
-            self.join_chains.append(current_chain)
-
-        # Calculate score
-        if self.join_count == 0:
-            return 100.0  # No joins to analyze
-            
-        score = max(0, 100 - (len(issues) * 10))
-        self.metrics['join_operations'].extend(issues)
-        return score
-
-    def _analyze_sql_joins(self, code: str) -> float:
-        """
-        Analyze SQL join patterns.
-
-        Args:
-            code (str): Code to analyze
-
-        Returns:
-            float: SQL joins score (0-100)
-        """
-        issues = []
-        sql_joins = []
-
-        # Look for SQL queries in strings
-        for match in re.finditer(r"['\"]{1,3}(.*?)['\"]{1,3}", code):
-            query = match.group(1).lower()
-            if any(join_type in query for join_type in self.SQL_JOIN_TYPES):
-                sql_joins.append(query)
-                
-                # Check join conditions
-                if 'join' in query and 'on' not in query:
-                    issues.append("SQL join without ON clause detected")
-                    
-                # Check cross joins
-                if 'cross join' in query:
-                    issues.append("Consider alternatives to CROSS JOIN")
-
-        # Calculate score
-        if not sql_joins:
-            return 100.0  # No SQL joins to analyze
-            
-        score = max(0, 100 - (len(issues) * 15))
-        self.metrics['join_operations'].extend(issues)
-        return score
-
-    def _analyze_join_efficiency(self, tree: ast.AST) -> float:
-        """
-        Analyze join operation efficiency.
-
-        Args:
-            tree (ast.AST): AST of the code
-
-        Returns:
-            float: Join efficiency score (0-100)
-        """
-        issues = []
-
-        class EfficiencyVisitor(ast.NodeVisitor):
-            def visit_Call(self, node):
-                if isinstance(node.func, ast.Attribute):
-                    method_name = node.func.attr
-                    if method_name in self.PANDAS_JOIN_METHODS:
-                        # Check for inefficient patterns
-                        if not self._has_index_specification(node):
-                            issues.append(
-                                f"Join operation without specified index/keys"
-                            )
-                            
-                        if self._has_copy_before_join(node):
-                            issues.append(
-                                "Unnecessary copy before join operation"
-                            )
-                            
-                self.generic_visit(node)
-
-        visitor = EfficiencyVisitor()
-        visitor.visit(tree)
-
-        # Calculate score
-        if not issues:
+        if visitor.join_count == 0:
             return 100.0
-            
-        score = max(0, 100 - (len(issues) * 10))
-        self.metrics['join_efficiency'].extend(issues)
-        return score
 
-    def _analyze_memory_usage(self, tree: ast.AST) -> float:
+        base_score = 100.0
+        
+        # Deduct points for issues
+        base_score -= len(visitor.issues) * 10
+        
+        # Deduct points for too many joins
+        if visitor.join_count > self.MAX_JOINS_PER_CELL:
+            base_score -= (visitor.join_count - self.MAX_JOINS_PER_CELL) * 5
+            
+        # Adjust score based on join types
+        for op in visitor.join_operations:
+            if op['method'] == 'merge':
+                join_type = op['kwargs'].get('how', 'inner')
+                base_score *= visitor.JOIN_TYPE_WEIGHTS.get(join_type, 0.7)
+
+        return max(0, min(100, round(base_score, 2)))
+
+    def _generate_suggestions(self, visitor: JoinVisitor) -> List[str]:
         """
-        Analyze memory usage in join operations.
+        Generate improvement suggestions.
 
         Args:
-            tree (ast.AST): AST of the code
+            visitor (JoinVisitor): The visitor containing analysis data
 
         Returns:
-            float: Memory usage score (0-100)
+            List[str]: List of improvement suggestions
         """
-        issues = []
+        suggestions = visitor.suggestions.copy()
 
-        class MemoryVisitor(ast.NodeVisitor):
-            def visit_Call(self, node):
-                if isinstance(node.func, ast.Attribute):
-                    method_name = node.func.attr
-                    if method_name in self.PANDAS_JOIN_METHODS:
-                        # Check for memory optimization keywords
-                        if not self._has_memory_optimization(node):
-                            issues.append(
-                                "Join operation without memory optimization"
-                            )
-                            
-                self.generic_visit(node)
-
-        visitor = MemoryVisitor()
-        visitor.visit(tree)
-
-        # Calculate score
-        if not issues:
-            return 100.0
-            
-        score = max(0, 100 - (len(issues) * 5))
-        self.metrics['memory_usage'].extend(issues)
-        return score
-
-    def _analyze_key_selection(self, tree: ast.AST) -> float:
-        """
-        Analyze join key selection.
-
-        Args:
-            tree (ast.AST): AST of the code
-
-        Returns:
-            float: Key selection score (0-100)
-        """
-        issues = []
-
-        class KeySelectionVisitor(ast.NodeVisitor):
-            def visit_Call(self, node):
-                if isinstance(node.func, ast.Attribute):
-                    method_name = node.func.attr
-                    if method_name == 'merge':
-                        # Check key selection
-                        if self._has_multiple_keys(node):
-                            if not self._has_sorted_data_hint(node):
-                                issues.append(
-                                    "Multiple join keys without sorted data hint"
-                                )
-                                
-                self.generic_visit(node)
-
-        visitor = KeySelectionVisitor()
-        visitor.visit(tree)
-
-        # Calculate score
-        if not issues:
-            return 100.0
-            
-        score = max(0, 100 - (len(issues) * 10))
-        self.metrics['key_selection'].extend(issues)
-        return score
-
-    def _calculate_overall_score(self, scores_and_weights: List[Tuple[float, float]]) -> float:
-        """
-        Calculate weighted average score.
-
-        Args:
-            scores_and_weights: List of (score, weight) tuples
-
-        Returns:
-            float: Weighted average score (0-100)
-        """
-        total_score = 0.0
-        total_weight = 0.0
-        
-        for score, weight in scores_and_weights:
-            total_score += score * weight
-            total_weight += weight
-            
-        return round(total_score / total_weight if total_weight > 0 else 0, 2)
-
-    def _generate_findings(self) -> List[str]:
-        """Generate list of significant findings."""
-        findings = []
-        
-        # Add join operation issues
-        if self.metrics['join_operations']:
-            findings.extend(self.metrics['join_operations'][:3])
-            
-        # Add efficiency issues
-        if self.metrics['join_efficiency']:
-            findings.extend(self.metrics['join_efficiency'][:2])
-            
-        # Add memory issues
-        if self.metrics['memory_usage']:
-            findings.extend(self.metrics['memory_usage'][:2])
-            
-        return findings
-
-    def _generate_suggestions(self) -> List[str]:
-        """Generate improvement suggestions based on findings."""
-        suggestions = []
-        
-        # Join operation suggestions
-        if self.metrics['join_operations']:
+        # Add general suggestions
+        if visitor.join_count > self.MAX_JOINS_PER_CELL:
             suggestions.append(
-                f"Keep join chains under {self.MAX_JOIN_CHAIN} operations"
+                f"Consider splitting joins across multiple cells (recommended max: {self.MAX_JOINS_PER_CELL})"
             )
-            
-        # Efficiency suggestions
-        if self.metrics['join_efficiency']:
+
+        if 'append' in self.metrics['join_methods']:
             suggestions.append(
-                "Always specify join keys/indexes explicitly"
+                "Replace 'append' operations with 'concat' for better performance"
             )
-            
-        # Memory usage suggestions
-        if self.metrics['memory_usage']:
+
+        if len(self.metrics['join_types']) == 1 and 'inner' in self.metrics['join_types']:
             suggestions.append(
-                "Consider using memory optimization techniques for large joins"
+                "Consider if other join types (left, right, outer) might be more appropriate"
             )
-            
-        # Key selection suggestions
-        if self.metrics['key_selection']:
-            suggestions.append(
-                "Sort data before joining on multiple keys"
-            )
-            
+
         return suggestions
 
-    @staticmethod
-    def _has_index_specification(node: ast.Call) -> bool:
-        """Check if join operation specifies index or keys."""
-        return any(
-            kw.arg in {'on', 'left_on', 'right_on', 'left_index', 'right_index'}
-            for kw in node.keywords
-        )
+    def __str__(self) -> str:
+        """Return string representation of the analyzer."""
+        return f"Dataset Join Analyzer (Methods: {dict(self.metrics['join_methods'])})"
 
-    @staticmethod
-    def _has_memory_optimization(node: ast.Call) -> bool:
-        """Check if join operation includes memory optimization."""
-        return any(
-            kw.arg in {'copy', 'inplace'} and isinstance(kw.value, ast.Constant)
-            for kw in node.keywords
-        )
-
-    @staticmethod
-    def _has_multiple_keys(node: ast.Call) -> bool:
-        """Check if join operation uses multiple keys."""
-        for kw in node.keywords:
-            if kw.arg == 'on' and isinstance(kw.value, (ast.List, ast.Tuple)):
-                return len(kw.value.elts) > 1
-        return False
-
-    @staticmethod
-    def _has_sorted_data_hint(node: ast.Call) -> bool:
-        """Check if join operation includes sorted data hint."""
-        return any(
-            kw.arg == 'sort' and isinstance(kw.value, ast.Constant)
-            for kw in node.keywords
-        )
+    def __repr__(self) -> str:
+        """Return detailed string representation of the analyzer."""
+        return (f"DatasetJoinAnalyzer(join_types={dict(self.metrics['join_types'])}, "
+                f"methods={dict(self.metrics['join_methods'])})")
